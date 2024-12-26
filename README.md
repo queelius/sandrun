@@ -1,42 +1,83 @@
-# `taskd`: Task Daemon for Decentralized Task Execution for Long-Running Tasks
+# `jobd`: Job Daemon Web Service
 
-The project `taskd` is a web service for script execution environment with workspace management. It allows you to create a workspace, upload a script, execute the script, and delete the workspace.
+The project `jobd` is a web service for script execution with job management. It allows you to upload scripts and additional dependencies, execute them as jobs, monitor their status, retrieve logs, cancel or delete jobs, and download job outputs.
 
 ## Workflow
 
-1. Create a workspace
-2. Upload a script
-3. Execute a script
-4. Delete a workspace
+1. **Upload a aggregate file or set of files related to a job**
+2. **Execute the job**
+3. **Monitor job status and logs**
+4. **Cancel or delete jobs**
+5. **Download a tarball of a job's working directory**
 
 ## Getting Started
 
 To get the server up and running, follow these steps:
 
-1. Install dependencies:
+1. **Install dependencies:**
 
     ```bash
     pip install -r requirements.txt
     ```
 
-2. Install and run `redis-server`:
-    - On Linux, you can install Redis using `apt-get install redis-server` and run it using `sudo systemctl start redis-server`
-3. Install and run `rq worker`:
-    - On Linux, you can install RQ using `pip install rq` and run it using `rq worker`
-4. Run `rq-dashboard`:
-    - On Linux, you can install RQ Dashboard using `pip install rq-dashboard` and run it using `rq-dashboard`
-5. Run `uvicorn main:app --reload`:
-    - On Linux, you can install Uvicorn using `pip install uvicorn` and run it using `uvicorn main:app --reload`
-6. Open `http://localhost:8000/docs` for the docs
+2. **Run the FastAPI server:**
+
+    ```bash
+    uvicorn main:app --reload
+    ```
+
+3. **Access the Documentation:**
+
+    Open [http://localhost:8000/docs](http://localhost:8000/docs) for the API documentation.
 
 ## API Endpoints
 
-The application provides several API endpoints for managing workspaces and executing scripts. These are defined in [`routes.py`](routes.py).
+The application provides several API endpoints for managing jobs and executing scripts. See [API Documentation](http://localhost:8000/docs) for detailed information.
 
-## Script Execution
+### Create a Job
 
-Scripts are executed in their respective workspaces. The output of the script execution is logged to a file in the workspace. This is handled by the `execute_script` function in [`utils.py`](utils.py).
+**Endpoint:** `POST /jobs`
 
-## Documentation
+**Description:** Upload a set of  files (or aggregate file, e.g. tarball) to create and enqueue a job for execution.
 
-For more detailed information about the application and its usage, refer to the [docs](docs/index.md).
+### Get Job Details
+
+**Endpoint:** `GET /jobs/{job_id}`
+
+**Description:** Retrieve details of a specific job.
+
+### Get Job Status
+
+**Endpoint:** `GET /jobs/{job_id}/status`
+
+**Description:** Get the current status of a job.
+
+### Get Job Logs
+
+**Endpoint:** `GET /jobs/{job_id}/logs`
+
+**Description:** Retrieve the logs of a job's execution. Useful for monitoring the executation of jobs.
+
+### Delete a Job
+
+**Endpoint:** `DELETE /jobs/{job_id}`
+
+**Description:** Remove a job from the system.
+
+### List All Jobs
+
+**Endpoint:** `GET /jobs`
+
+**Description:** List all job IDs and their statuses.
+
+### Download Job Tarball
+
+**Endpoint:** `POST /jobs/{job_id}/tarball`
+
+**Description:** Download a tarball of the job's working directory. This is generally how you get the final results of a job.
+
+### Cancel a Job
+
+**Endpoint:** `POST /jobs/{job_id}/cancel`
+
+**Description:** Cancel a running job.

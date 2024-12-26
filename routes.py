@@ -1,258 +1,317 @@
-from fastapi.routing import APIRoute
-from fastapi.responses import FileResponse
-from fastapi import APIRouter, File, UploadFile
-import os
-from pydantic import BaseModel
-import importlib.util
-import inspect
-import utils
-from db import q
+"""
+FastAPI routes to manage jobs. Each job is run in isolation under an ephemeral user
+in its own directory, with optional secret-based access.
+"""
 
-BASE_DIR = "workspaces"
+from typing import List, Optional
+from fastapi import APIRouter, HTTPException, File, UploadFile, Query, FileResponse
+from job_queue import JobQueue, hash_secret
+import uuid, tarfile, zipfile, os
 
-class FileContent(BaseModel):
-    data: str
 
 router = APIRouter()
+queue = JobQueue(max_workers=4)  # Increase workers as needed
 
-@router.get("/api/{endpoint}")
-async def get_api(endpoint: str, include_source: bool = False):
+script_types = {".py": "python",
+                ".sh": "bash",
+                ".R": "Rsript",
+                ".js": "node"}
+
+@router.post("/jobs", response_model=dict)
+async def create_job(
+    files: List[UploadFile] = File(..., description="The script and any additional files needed to run the job."),
+    main: str = Query(..., description="The main script to run."),
+    function: Optional[str] = Query(None, description="The function to run in the script. If None, the script is run as a standalone script."),
+    args: Optional[str] = Query(None, description="Arguments to pass to the script or function."),    
+    interpreter: Optional[str] = Query("python", description="Interpreter to execute the script (e.g., 'python', 'bash')"),
+    secret: Optional[str] = Query(None, description="Optional secret for job confidentiality")
+):
     """
-    List API for routes matching the given endpoint name.
+    Enqueue a job by uploading files. The main script is required, and should
+    be a file in `files`. The interpreter is optional and defaults to being
+    based on the file extension. If the script is a standalone script, the
+    function is None. If the script is a module, `function` is the name of
+    the function to run. Arguments can be passed to the script or function.
+    
+    Args:
+        files: A list of files to upload, including the main script. If the file
+        is a single tarball or compressed file, it will be extracted.
+        main: The main script to run.
+        function: The function to run in the script. If None, the script is run as a standalone script.
+        args: Arguments to pass to the script or function.
+        interpreter: The command or interpreter to be used (e.g., 'python', 'bash'). Defaults to using the file extension to determine the interpreter.
+        secret: Optional secret for confidential access to job details.
+    
+    Returns:
+        A dictionary containing the job ID and a status message.
+    Raises:
+        HTTPException: If the script type is not supported or no files are uploaded.
+    """
+
+    if len(files) == 0:
+        raise HTTPException(status_code=400, detail="No files uploaded.")
+    
+    # Enqueue the job first to get a job_id and directory
+    job_id = str(uuid.uuid4())
+    job_dir = f"./jobd/jobs/job_{uuid.uuid4().hex}"
+    os.makedirs(job_dir, exist_ok=True)
+    
+    if len(files) == 1 and files[0].filename.endswith((".tar", ".gz", ".zip")):
+        # extract the tarball or compressed file
+        ext = os.path.splitext(files[0].filename)[1]
+
+        if ext == ".tar":
+            with tarfile.open(files[0].file, "r") as tar:
+                tar.extractall(job_dir)
+        elif ext == ".gz":
+            with tarfile.open(files[0].file, "r:gz") as tar:
+                tar.extractall(job_dir)
+        elif ext == ".zip":
+            with zipfile.ZipFile(files[0].file, "r") as zipf:
+                zipf.extractall(job_dir)
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported aggregate file type.")
+    else:
+        for file in files:
+            file_path = os.path.join(job_dir, file.filename)
+            with open(file_path, "wb") as f:
+                f.write(await file.read())
+
+    if interpreter:
+        if interpreter not in script_types.values():
+            raise HTTPException(status_code=400, detail="Unsupported interpreter.")
+    else:
+        ext = os.path.splitext(main)[1]
+        if ext not in script_types:
+            raise HTTPException(status_code=400, detail=f"Unsupported script extension: {ext}")
+        else:
+            interpreter = script_types[ext]        
+
+    # Build the command to run the script
+    command = [interpreter, main, function, args]
+    job_id = queue.enqueue(command, secret)
+    return {"message": f"{interpreter} job enqueued",
+            "job_id": job_id}
+
+
+@router.post("/admin/overview", response_model=dict)
+async def admin_overview(admin_secret: str = Query(..., description="Admin secret")):
+    """
+    Retrieve an overview of the job queue, including the number of jobs and their statuses.
+    
+    Returns:
+        A dictionary containing the number of jobs and their statuses.
+    """
+
+    if admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid admin secret.")
+    
+    # get the number of jobs in each status
+    statuses = {}
+    for job in queue.jobs.values():
+        if job.status in statuses:
+            statuses[job.status] += 1
+        else:
+            statuses[job.status] = 1
+
+    from datetime import datetime as dt
+
+    now = dt.now()
+    # get the runtime duration of each job
+    runtimes = {}
+    for job_id, job in queue.jobs.items():
+        if job.status == "completed" or job.status == "canceled" or job.status == "failed":
+            runtimes[job_id] = job.end_time - job.start_time
+        elif job.status == "running":
+            runtimes[job_id] = now - job.start_time
+        elif job.status == "queued":
+            runtimes[job_id] = now - job.enqueued_time
+
+    # get the total runtime of all jobs
+    total_runtime = sum([runtime.total_seconds() for runtime in runtimes.values()])
+
+    return {"queue_size": len(queue.jobs),
+            "statuses": statuses,
+            "runtimes": runtimes,
+            "total_runtime": total_runtime,
+            "busy_workers": queue.busy_workers,
+            "max_workers": queue.max_workers,
+            "free_workers": queue.max_workers - queue.busy_workers,
+            "deleted_jobs": queue.deleted_jobs}
+
+
+@router.post("/jobs/{job_id}", response_model=dict)
+async def get_job(job_id: str,
+                  secret: Optional[str] = Query(None, description="Job secret")):
+    """
+    Retrieve a job's details. If the job has a secret, you must provide it.
 
     Args:
-        endpoint (str): The name of an endpoint to retrieve. Partial matching.
-        include_source (bool, optional): Whether to include the source code of each endpoint. Defaults to False.
-    Returns:
-        dict: A list of API routes with their respective HTTP methods and descriptions.
+        job_id: The unique ID of the job.
+        secret: The secret associated with the job, if any.
     """
-    paths = []
-    for route in router.routes:
-        if isinstance(route, APIRoute):
-            if endpoint not in route.path:
-                continue
-            path_item = {
-                "path": route.path,
-                "methods": route.methods,
-                "params": [param.name for param in inspect.signature(route.endpoint).parameters.values()],
-                "doc": utils.format_docstring(route.description) ,
-            }
-            if include_source:
-                path_item["source"] = inspect.getsource(route.endpoint)
-            paths.append(path_item)
-    return {"paths": paths}
+    job = queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.hashed_secret:
+        if not secret:
+            raise HTTPException(status_code=403, detail="This job is protected by a secret.")
+        if hash_secret(secret) != job.hashed_secret:
+            raise HTTPException(status_code=403, detail="Invalid secret.")
+        
+    return job.to_dict()
+                                                             
 
-@router.get("/api")
-async def get_api(search: str = None, include_source: bool = False):
-    """List API for routes matching the search query. We match the query against the path and the docstring.
-    If the query is empty, we return all routes.
-
+@router.get("/jobs/{job_id}/status", response_model=dict)
+async def get_job_status(job_id: str, secret: Optional[str] = Query(None, min_length=8, description="Job secret if set")):
+    """
+    Retrieve a job's status. If a job has a secret, you must provide it.
+    
     Args:
-        endpoint (str, optional): The search query. Defaults to None.
-        include_source (bool, optional): Whether to include the source code of each endpoint. Defaults to False.
+        job_id: The unique ID of the job.
+        secret: The secret associated with the job, if any.
+    
     Returns:
-        dict: A list of API routes with their respective HTTP methods and descriptions."""
-    paths = []
-    for route in router.routes:
-        if isinstance(route, APIRoute):
-            if search and search not in route.path and search not in route.endpoint.__doc__:
-                continue
-            path_item = {
-                "path": route.path,
-                "params": [param.name for param in inspect.signature(route.endpoint).parameters.values()],
-                "methods": route.methods,
-                "doc": utils.format_docstring(route.description),
-            }
-            if include_source:
-                path_item["source"] = inspect.getsource(route.endpoint)
-            paths.append(path_item)
-    return {"paths": paths}
-
-@router.get("/workspaces")
-async def list_workspaces():
+        A dictionary containing the job's status.
     """
-    Retrieve a list of all workspaces.
+    job = queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.hashed_secret:
+        if not secret:
+            raise HTTPException(status_code=403, detail="This job is protected by a secret.")
+        if hash_secret(secret) != job.hashed_secret:
+            raise HTTPException(status_code=403, detail="Invalid secret.")
 
-    This endpoint scans the base directory and returns a list of all workspaces (directories) present.
+    return {"job_id": job.job_id, "status": job.status}
 
-    Returns:
-        dict: A dictionary containing a list of workspaces.
+@router.get("/jobs/{job_id}/logs", response_model=dict)
+async def get_job_logs(job_id: str, secret: Optional[str] = Query(None, description="Job secret if set")):
     """
-    workspaces = os.listdir(BASE_DIR)
-    return {"workspaces": workspaces}
-
-@router.get("/workspace/{workspace_name}/view/{file_name}")
-async def get_view(workspace_name: str, file_name: str):
-    """
-    Fetch a specific file from a workspace.
-
+    Retrieve a job's logs. If the job has a secret, you must provide it.
+    
     Args:
-        workspace_name (str): The name of the workspace.
-        file_name (str): The name of the file to retrieve.
-
+        job_id: The unique ID of the job.
+        secret: The secret associated with the job, if any.
+    
     Returns:
-        FileResponse: A response object containing the requested file.
+        A dictionary containing the job's logs.
     """
-    workspace_path = os.path.join(BASE_DIR, workspace_name)
-    file_path = os.path.join(workspace_path, file_name)
-    if not os.path.exists(workspace_path) or not os.path.exists(file_path):
-        return {"error": "Workspace or file not found"}
-    return FileResponse(file_path)
+    job = queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
 
-@router.post("/workspace/{workspace_name}")
-async def create_workspace(workspace_name: str):
+    if job.hashed_secret:
+        if not secret:
+            raise HTTPException(status_code=403, detail="This job is protected by a secret.")
+        if hash_secret(secret) != job.hashed_secret:
+            raise HTTPException(status_code=403, detail="Invalid secret.")
+
+    return {"job_id": job.job_id, "logs": job.logs}
+
+@router.delete("/jobs/{job_id}", response_model=dict)
+async def delete_job(job_id: str, secret: Optional[str] = Query(None, min_length=8, description="Job secret if set"), remove_dir: bool = Query(False, description="Whether to remove the job's directory")):
     """
-    Create a new workspace.
-
-    This endpoint creates a new directory in the base directory as a new workspace.
-
+    Remove a job from the system. If it has a secret, you must provide it.
+    Optionally remove its working directory from disk.
+    
     Args:
-        workspace_name (str): The name for the new workspace.
-
+        job_id: The unique ID of the job to delete.
+        secret: The secret associated with the job, if any.
+        remove_dir: Whether to remove the job's working directory.
+    
     Returns:
-        dict: Confirmation message with the name of the created workspace.
+        A dictionary containing a message and the job ID.
     """
-    os.makedirs(os.path.join(BASE_DIR, workspace_name), exist_ok=True)
-    return {"message": f"Workspace '{workspace_name}' created"}
+    job = queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.hashed_secret:
+        if not secret:
+            raise HTTPException(status_code=403, detail="This job is protected by a secret.")
+        if hash_secret(secret) != job.hashed_secret:
+            raise HTTPException(status_code=403, detail="Invalid secret.")
 
-@router.delete("/workspace/{workspace_name}")
-async def delete_workspace(workspace_name: str):
+    queue.delete_job(job_id)
+    
+    return {"message": "Job deleted", "job_id": job_id}
+
+@router.get("/jobs", response_model=List[str])
+async def list_jobs():
     """
-    Delete an existing workspace.
+    List all job IDs and their statuses.
+    
+    Returns:
+        A list of job IDs.
+    """
+    return {job_id: queue.get_job(job_id).status for job_id in queue.jobs.keys()}
 
+@router.post("/jobs/{job_id}/tarball", response_model=File)
+async def download_job_tarball(
+    job_id: str,
+    secret: Optional[str] = Query(None, description="Job secret if set")):
+    """
+    Download the tarball of a job's working directory. If the job has a secret,
+    you must provide it.
+    
     Args:
-        workspace_name (str): The name of the workspace to delete.
-
+        job_id: The unique ID of the job.
+        secret: The secret associated with the job, if any.
+    
     Returns:
-        dict: Confirmation message with the name of the deleted workspace, or an error message.
+        A tarball of the job's working directory, i.e., all files and directories
+        within the job's working directory and their contents. It will be a
+        compressed tarball file that the user downloads with the job's ID.
     """
-    workspace_path = os.path.join(BASE_DIR, workspace_name)
-    if os.path.exists(workspace_path):
-        os.rmdir(workspace_path)
-        return {"message": f"Workspace '{workspace_name}' deleted"}
-    return {"error": "Workspace not found"}
+    job = queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.hashed_secret:
+        if not secret:
+            raise HTTPException(status_code=403, detail="This job is protected by a secret.")
+        if hash_secret(secret) != job.hashed_secret:
+            raise HTTPException(status_code=403, detail="Invalid secret.")
+        
+    # if job is still running, raise an error
+    if job.status == "running":
+        raise HTTPException(status_code=400, detail="Job is still running. Please wait for it to complete.")
+
+    tarball_path = job.tarball()
+    return FileResponse(tarball_path, filename=f"{job_id}.tar.gz")
 
 
-@router.post("/workspace/{workspace_name}/create/{file_name}")
-async def create_file(workspace_name: str, file_name: str, content: FileContent):
+@router.post("/jobs/{job_id}/cancel", response_model=dict)
+async def cancel_job(job_id: str, secret: Optional[str] = Query(None, description="Job secret if set")):
     """
-    Create or update a file in a workspace.
-
+    Cancel a job. If the job has a secret, you must provide it.
+    
     Args:
-        workspace_name (str): The name of the workspace.
-        file_name (str): The name of the file to create or update.
-        content (FileContent): The content to write into the file.
-
+        job_id: The unique ID of the job.
+        secret: The secret associated with the job, if any.
+    
     Returns:
-        dict: Confirmation message with the name of the created/updated file.
+        A dictionary containing a message and the job ID.
     """
-    workspace_path = os.path.join(BASE_DIR, workspace_name)
-    if not os.path.exists(workspace_path):
-        return {"error": "Workspace not found"}
-    path = os.path.join(workspace_path, file_name)
-    with open(path, "w") as f:
-        f.write(content.data)
-    return {"message": f"File '{file_name}' created"}
-
-@router.post("/workspace/{workspace_name}/upload")
-async def upload_file(workspace_name: str, file: UploadFile = File(...)):
-    """
-    Upload a file to a workspace.
-
-    Args:
-        workspace_name (str): The name of the workspace.
-        file (UploadFile, optional): The file to upload.
-
-    Returns:
-        dict: Confirmation message with the name of the uploaded file.
-    """
-    workspace_path = os.path.join(BASE_DIR, workspace_name)
-    if not os.path.exists(workspace_path):
-        return {"error": "Workspace not found"}
-    file_location = os.path.join(workspace_path, file.filename)
-    with open(file_location, "wb") as f:
-        f.write(await file.read())
-    return {"message": f"File '{file.filename}' uploaded"}
-
-@router.post("/workspace/{workspace_name}/execute/{script_name}")
-async def enqueue_script_execution(workspace_name: str, script_name: str):
-    """
-    Execute a script located in a workspace.
-
-    Args:
-        workspace_name (str): The name of the workspace containing the script.
-        script_name (str): The name of the script to execute.
-
-    Returns:
-        dict: Information about the enqueued job including the job ID.
-    """
-    workspace_path = os.path.join(BASE_DIR, workspace_name)
-    if not os.path.exists(workspace_path) or not os.path.exists(os.path.join(workspace_path, script_name)):
-        return {"error": "Workspace or script not found"}
-    job = q.enqueue(utils.execute_script, workspace_path, script_name)
-    return {"message": "Script execution started", "job_id": job.id}
-
-@router.post("/workspace/{workspace_name}/execute/{script_name}/{function_name}")
-async def enqueue_script_execution(workspace_name: str, script_name: str, function_name: str):
-    """
-    Execute a function from a script located in a workspace.
-
-    Args:
-        workspace_name (str): The name of the workspace containing the script.
-        script_name (str): The name of the script to execute.
-        function_name (str): The name of the function to execute.
-
-    Returns:
-        dict: Information about the enqueued job including the job ID.
-    """
-    workspace_path = os.path.join(BASE_DIR, workspace_name)
-    script_path = os.path.join(workspace_path, script_name)
-    if not os.path.exists(workspace_path) or not os.path.exists(script_path):
-        return {"error": "Workspace or script not found"}
-
-    # Load the module from the script file
-    spec = importlib.util.spec_from_file_location("module.name", script_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    # Get the function from the module
-    function = getattr(module, function_name, None)
-    if not function:
-        return {"error": f"Function '{function_name}' not found in script '{script_name}'"}
-
-    # Enqueue the function
-    job = q.enqueue(function)
-    return {"message": "Script execution started", "job_id": job.id}
-
-@router.get("/workspace/{workspace_name}/files")
-async def list_files(workspace_name: str):
-    """
-    List all files in a workspace.
-
-    Args:
-        workspace_name (str): The name of the workspace.
-
-    Returns:
-        dict: A list of files in the workspace.
-    """
-    workspace_path = os.path.join(BASE_DIR, workspace_name)
-    if not os.path.exists(workspace_path):
-        return {"error": "Workspace not found"}
-    files = os.listdir(workspace_path)
-    return {"files": files}
-
-@router.get("/execution/{job_id}/status")
-async def check_job_status(job_id: str):
-    """
-    Check the status of an enqueued job.
-
-    Args:
-        job_id (str): The unique identifier of the job.
-
-    Returns:
-        dict: The status of the job and its result if completed.
-    """
-    job = q.fetch_job(job_id)
-    if job is None:
-        return {"error": "Job not found"}
-    return {"status": job.get_status(), "result": job.result}
+    job = queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.hashed_secret:
+        if not secret:
+            raise HTTPException(status_code=403, detail="This job is protected by a secret.")
+        if hash_secret(secret) != job.hashed_secret:
+            raise HTTPException(status_code=403, detail="Invalid secret.")
+    
+    try:
+        resp = queue.cancel_job(job_id)
+        if not resp:
+            raise HTTPException(status_code=500, detail="Failed to cancel job.")
+        else:   
+            return {"message": "Job canceled", "job_id": job_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
