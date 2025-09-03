@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sandrun - Anonymous Batch Job Execution</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #333;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            font-weight: 300;
+        }
+        
+        .tagline {
+            color: #888;
+            font-size: 0.9rem;
+        }
+        
+        .limits {
+            text-align: right;
+            font-size: 0.85rem;
+            color: #666;
+        }
+        
+        .upload-zone {
+            border: 2px dashed #444;
+            border-radius: 8px;
+            padding: 3rem;
+            text-align: center;
+            transition: all 0.3s;
+            cursor: pointer;
+            margin-bottom: 2rem;
+        }
+        
+        .upload-zone:hover {
+            border-color: #666;
+            background: #111;
+        }
+        
+        .upload-zone.dragging {
+            border-color: #4CAF50;
+            background: #1a1a1a;
+        }
+        
+        .manifest-editor {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .manifest-editor h3 {
+            margin-bottom: 1rem;
+            font-weight: 400;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 0.25rem;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+        
+        input, textarea, select {
+            width: 100%;
+            background: #0a0a0a;
+            border: 1px solid #333;
+            color: #e0e0e0;
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 0.75rem 2rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.3s;
+        }
+        
+        button:hover:not(:disabled) {
+            background: #45a049;
+        }
+        
+        button:disabled {
+            background: #333;
+            cursor: not-allowed;
+        }
+        
+        .job-status {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .status-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        
+        .status-badge.queued { background: #2196F3; }
+        .status-badge.running { background: #FF9800; }
+        .status-badge.completed { background: #4CAF50; }
+        .status-badge.failed { background: #F44336; }
+        
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .metric {
+            background: #0a0a0a;
+            padding: 1rem;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 300;
+        }
+        
+        .metric-label {
+            font-size: 0.8rem;
+            color: #888;
+            text-transform: uppercase;
+        }
+        
+        .logs {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 1rem;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid #333;
+        }
+        
+        .tab {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .tab:hover {
+            color: #4CAF50;
+        }
+        
+        .tab.active {
+            color: #4CAF50;
+            border-bottom-color: #4CAF50;
+        }
+        
+        .file-list {
+            display: grid;
+            gap: 0.5rem;
+        }
+        
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem;
+            background: #0a0a0a;
+            border-radius: 4px;
+        }
+        
+        .file-item:hover {
+            background: #1a1a1a;
+        }
+        
+        .download-btn {
+            background: transparent;
+            border: 1px solid #4CAF50;
+            color: #4CAF50;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.85rem;
+        }
+        
+        .download-btn:hover {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .info-box {
+            background: #1a2332;
+            border: 1px solid #2196F3;
+            border-radius: 4px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .error-box {
+            background: #332323;
+            border: 1px solid #F44336;
+            border-radius: 4px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #333;
+            border-top-color: #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <header>
+                <div>
+                    <h1>🏃 Sandrun</h1>
+                    <div class="tagline">Anonymous • Ephemeral • Sandboxed Batch Jobs</div>
+                </div>
+                <div class="limits">
+                    <div>CPU: 10 sec/min</div>
+                    <div>Memory: 512 MB</div>
+                    <div>Timeout: 5 min</div>
+                </div>
+            </header>
+            
+            <!-- Upload Section -->
+            <div v-if="!jobId">
+                <div 
+                    class="upload-zone"
+                    :class="{ dragging: isDragging }"
+                    @click="selectFiles"
+                    @dragover.prevent="isDragging = true"
+                    @dragleave.prevent="isDragging = false"
+                    @drop.prevent="handleDrop"
+                >
+                    <div v-if="!files.length">
+                        <h2>📁 Drop your project directory here</h2>
+                        <p>or click to select files</p>
+                        <p style="color: #666; font-size: 0.9rem; margin-top: 1rem;">
+                            Zip, tar.gz, or multiple files supported
+                        </p>
+                    </div>
+                    <div v-else>
+                        <h3>✅ {{ files.length }} files selected</h3>
+                        <p>Total size: {{ formatSize(totalSize) }}</p>
+                    </div>
+                    <input 
+                        ref="fileInput" 
+                        type="file" 
+                        multiple 
+                        webkitdirectory 
+                        @change="handleFileSelect"
+                        style="display: none;"
+                    >
+                </div>
+                
+                <!-- Manifest Editor -->
+                <div v-if="files.length" class="manifest-editor">
+                    <h3>📋 Job Configuration</h3>
+                    
+                    <div class="form-group">
+                        <label>Entry Point (what to run)</label>
+                        <input 
+                            v-model="manifest.entrypoint" 
+                            placeholder="main.py, index.js, run.sh, etc."
+                        >
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Interpreter</label>
+                        <select v-model="manifest.interpreter">
+                            <option>python3</option>
+                            <option>node</option>
+                            <option>bash</option>
+                            <option>ruby</option>
+                            <option>go run</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Arguments (optional)</label>
+                        <input 
+                            v-model="manifest.args" 
+                            placeholder="--input data.csv --output results/"
+                        >
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Output Files/Directories to Download (glob patterns, one per line)</label>
+                        <textarea 
+                            v-model="manifest.outputs" 
+                            placeholder="results/&#10;*.png&#10;output.json&#10;logs/*.log"
+                        ></textarea>
+                    </div>
+                    
+                    <button 
+                        @click="submitJob" 
+                        :disabled="!manifest.entrypoint || submitting"
+                    >
+                        {{ submitting ? 'Uploading...' : 'Submit Job' }}
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Job Status Section -->
+            <div v-else class="job-status">
+                <div class="status-header">
+                    <div>
+                        <h2>Job: {{ jobId }}</h2>
+                        <span class="status-badge" :class="status">{{ status }}</span>
+                    </div>
+                    <button @click="reset" style="background: #666;">
+                        New Job
+                    </button>
+                </div>
+                
+                <!-- Queue Position -->
+                <div v-if="status === 'queued'" class="info-box">
+                    ⏳ Position in queue: {{ queuePosition || 'calculating...' }}
+                </div>
+                
+                <!-- Metrics -->
+                <div v-if="metrics" class="metrics">
+                    <div class="metric">
+                        <div class="metric-value">{{ metrics.cpuSeconds }}s</div>
+                        <div class="metric-label">CPU Used</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">{{ metrics.memoryMB }} MB</div>
+                        <div class="metric-label">Memory</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value">{{ metrics.runtime }}s</div>
+                        <div class="metric-label">Runtime</div>
+                    </div>
+                </div>
+                
+                <!-- Tabs for Logs/Outputs -->
+                <div class="tabs">
+                    <div 
+                        class="tab" 
+                        :class="{ active: activeTab === 'logs' }"
+                        @click="activeTab = 'logs'"
+                    >
+                        📜 Logs
+                    </div>
+                    <div 
+                        class="tab" 
+                        :class="{ active: activeTab === 'outputs' }"
+                        @click="activeTab = 'outputs'"
+                        v-if="status === 'completed'"
+                    >
+                        📦 Outputs
+                    </div>
+                </div>
+                
+                <!-- Logs Tab -->
+                <div v-if="activeTab === 'logs'">
+                    <div class="logs">{{ logs || 'Waiting for logs...' }}</div>
+                    <div v-if="status === 'running'" style="margin-top: 1rem;">
+                        <span class="spinner"></span> Streaming logs...
+                    </div>
+                </div>
+                
+                <!-- Outputs Tab -->
+                <div v-if="activeTab === 'outputs' && status === 'completed'">
+                    <div class="file-list">
+                        <div v-for="file in outputFiles" :key="file" class="file-item">
+                            <span>{{ file }}</span>
+                            <button @click="downloadFile(file)" class="download-btn">
+                                Download
+                            </button>
+                        </div>
+                    </div>
+                    <button @click="downloadAll" style="margin-top: 1rem;">
+                        📥 Download All Outputs
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Error Display -->
+            <div v-if="error" class="error-box">
+                ❌ {{ error }}
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const { createApp } = Vue;
+        
+        createApp({
+            data() {
+                return {
+                    // API endpoint
+                    apiUrl: window.location.hostname === 'localhost' 
+                        ? 'http://localhost:8443' 
+                        : 'https://api.sandrun.io',
+                    
+                    // Upload state
+                    files: [],
+                    totalSize: 0,
+                    isDragging: false,
+                    submitting: false,
+                    
+                    // Job manifest
+                    manifest: {
+                        entrypoint: '',
+                        interpreter: 'python3',
+                        args: '',
+                        outputs: 'results/\n*.png\n*.json'
+                    },
+                    
+                    // Job state
+                    jobId: null,
+                    status: null,
+                    queuePosition: null,
+                    metrics: null,
+                    logs: '',
+                    outputFiles: [],
+                    
+                    // UI state
+                    activeTab: 'logs',
+                    error: null,
+                    pollInterval: null
+                }
+            },
+            
+            mounted() {
+                // Check for job ID in URL hash
+                if (window.location.hash) {
+                    this.jobId = window.location.hash.slice(1);
+                    this.pollStatus();
+                }
+            },
+            
+            methods: {
+                selectFiles() {
+                    this.$refs.fileInput.click();
+                },
+                
+                handleFileSelect(e) {
+                    this.files = Array.from(e.target.files);
+                    this.totalSize = this.files.reduce((sum, f) => sum + f.size, 0);
+                },
+                
+                handleDrop(e) {
+                    this.isDragging = false;
+                    const items = Array.from(e.dataTransfer.items);
+                    
+                    // Handle dropped files/folders
+                    this.files = [];
+                    for (const item of items) {
+                        if (item.kind === 'file') {
+                            const file = item.getAsFile();
+                            if (file) this.files.push(file);
+                        }
+                    }
+                    
+                    this.totalSize = this.files.reduce((sum, f) => sum + f.size, 0);
+                },
+                
+                async submitJob() {
+                    this.submitting = true;
+                    this.error = null;
+                    
+                    try {
+                        const formData = new FormData();
+                        
+                        // Add files
+                        for (const file of this.files) {
+                            formData.append('files', file, file.webkitRelativePath || file.name);
+                        }
+                        
+                        // Add manifest
+                        formData.append('manifest', JSON.stringify({
+                            ...this.manifest,
+                            args: this.manifest.args.split(' ').filter(a => a),
+                            outputs: this.manifest.outputs.split('\n').filter(o => o.trim())
+                        }));
+                        
+                        const response = await axios.post(`${this.apiUrl}/submit`, formData, {
+                            headers: { 'Content-Type': 'multipart/form-data' }
+                        });
+                        
+                        this.jobId = response.data.job_id;
+                        window.location.hash = this.jobId;
+                        this.status = 'queued';
+                        this.pollStatus();
+                        
+                    } catch (err) {
+                        this.error = err.response?.data?.error || err.message;
+                    } finally {
+                        this.submitting = false;
+                    }
+                },
+                
+                async pollStatus() {
+                    try {
+                        const response = await axios.get(`${this.apiUrl}/status/${this.jobId}`);
+                        const data = response.data;
+                        
+                        this.status = data.status;
+                        this.queuePosition = data.queue_position;
+                        this.metrics = data.metrics;
+                        
+                        // Poll logs if running
+                        if (this.status === 'running' || this.logs === '') {
+                            this.fetchLogs();
+                        }
+                        
+                        // Get outputs if completed
+                        if (this.status === 'completed' && !this.outputFiles.length) {
+                            this.fetchOutputs();
+                        }
+                        
+                        // Continue polling if not done
+                        if (this.status === 'queued' || this.status === 'running') {
+                            this.pollInterval = setTimeout(() => this.pollStatus(), 2000);
+                        }
+                        
+                    } catch (err) {
+                        this.error = err.message;
+                    }
+                },
+                
+                async fetchLogs() {
+                    try {
+                        const response = await axios.get(`${this.apiUrl}/logs/${this.jobId}`);
+                        this.logs = response.data.stdout + '\n' + response.data.stderr;
+                    } catch (err) {
+                        console.error('Failed to fetch logs:', err);
+                    }
+                },
+                
+                async fetchOutputs() {
+                    try {
+                        const response = await axios.get(`${this.apiUrl}/outputs/${this.jobId}`);
+                        this.outputFiles = response.data.files;
+                    } catch (err) {
+                        console.error('Failed to fetch outputs:', err);
+                    }
+                },
+                
+                async downloadFile(filename) {
+                    window.open(`${this.apiUrl}/download/${this.jobId}/${filename}`, '_blank');
+                },
+                
+                async downloadAll() {
+                    window.open(`${this.apiUrl}/download/${this.jobId}`, '_blank');
+                },
+                
+                reset() {
+                    if (this.pollInterval) {
+                        clearTimeout(this.pollInterval);
+                    }
+                    
+                    this.files = [];
+                    this.jobId = null;
+                    this.status = null;
+                    this.logs = '';
+                    this.outputFiles = [];
+                    this.error = null;
+                    window.location.hash = '';
+                },
+                
+                formatSize(bytes) {
+                    if (bytes < 1024) return bytes + ' B';
+                    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+                }
+            },
+            
+            beforeUnmount() {
+                if (this.pollInterval) {
+                    clearTimeout(this.pollInterval);
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

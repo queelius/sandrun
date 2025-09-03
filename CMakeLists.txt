@@ -1,0 +1,41 @@
+cmake_minimum_required(VERSION 3.14)
+project(sandrun VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Security-focused compile flags
+add_compile_options(
+    -Wall -Wextra -Wpedantic
+    -Wformat=2 -Wformat-security
+    -Werror=format-security
+    -fstack-protector-strong
+    -fPIE -fPIC
+    -D_FORTIFY_SOURCE=2
+)
+
+# Find required system libraries
+find_package(Threads REQUIRED)
+
+# Main executable (v2 with multipart support)
+add_executable(sandrun
+    src/main_v2.cpp
+    src/sandbox.cpp
+    src/http_server.cpp
+    src/multipart.cpp
+    src/rate_limiter.cpp
+    src/job_executor.cpp
+)
+
+target_link_libraries(sandrun
+    PRIVATE
+    Threads::Threads
+    seccomp  # For syscall filtering
+    cap      # For capability management
+)
+
+# Installation
+install(TARGETS sandrun
+    RUNTIME DESTINATION bin
+)

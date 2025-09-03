@@ -1,0 +1,64 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# Compiled binaries
+sandrun
+*.o
+*.a
+*.so
+*.exe
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+venv/
+env/
+
+# Test files
+test_*.py
+test_*.sh
+*.tar.gz
+*.tar
+/tmp/
+
+# Logs
+*.log
+*.out
+*.err
+
+# Core dumps
+core
+core.*
+
+# Documentation build
+docs/_build/
+*.dox
+
+# Dependencies
+node_modules/
+
+# OS files
+Thumbs.db
+.directory
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+
+# Job outputs (if running locally)
+job_*
+sandrun_output/

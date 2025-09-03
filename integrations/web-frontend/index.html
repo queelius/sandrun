@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sandrun - Anonymous Code Execution</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏃 Sandrun</h1>
+            <p>Anonymous • Ephemeral • Sandboxed Code Execution</p>
+            <div class="limits">
+                <span>10 CPU-sec/min</span>
+                <span>512MB RAM</span>
+                <span>5 min timeout</span>
+            </div>
+        </header>
+
+        <!-- Server Configuration -->
+        <section class="server-config">
+            <div class="config-group">
+                <label for="server-url">Server:</label>
+                <input type="text" id="server-url" value="http://localhost:8443" placeholder="http://localhost:8443">
+                <button id="test-connection" class="btn-small">Test</button>
+                <span id="connection-status" class="status-indicator"></span>
+            </div>
+        </section>
+
+        <main>
+            <!-- Job Submission -->
+            <section id="submit-section" class="card">
+                <h2>Submit Job</h2>
+                
+                <div class="tab-group">
+                    <button class="tab active" data-tab="files">Upload Files</button>
+                    <button class="tab" data-tab="code">Quick Code</button>
+                </div>
+
+                <!-- File Upload Tab -->
+                <div class="tab-content active" id="files-tab">
+                    <div id="drop-zone" class="drop-zone">
+                        <p>📁 Drop folder here or click to select files</p>
+                        <input type="file" id="file-input" multiple webkitdirectory directory hidden>
+                        <div id="file-list" class="file-list"></div>
+                    </div>
+                    
+                    <div class="manifest-section">
+                        <h3>Job Configuration</h3>
+                        <div class="form-group">
+                            <label for="entrypoint">Entrypoint:</label>
+                            <input type="text" id="entrypoint" placeholder="main.py" value="main.py">
+                        </div>
+                        <div class="form-group">
+                            <label for="interpreter">Interpreter:</label>
+                            <select id="interpreter">
+                                <option value="python3">Python 3</option>
+                                <option value="python">Python 2</option>
+                                <option value="node">Node.js</option>
+                                <option value="bash">Bash</option>
+                                <option value="sh">Shell</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="args">Arguments:</label>
+                            <input type="text" id="args" placeholder="--input data.csv --output results.json">
+                        </div>
+                        <div class="form-group">
+                            <label for="outputs">Output patterns:</label>
+                            <input type="text" id="outputs" placeholder="*.png results/ *.csv" value="*">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Code Tab -->
+                <div class="tab-content" id="code-tab">
+                    <div class="form-group">
+                        <label for="quick-interpreter">Language:</label>
+                        <select id="quick-interpreter">
+                            <option value="python3">Python 3</option>
+                            <option value="node">Node.js</option>
+                            <option value="bash">Bash</option>
+                        </select>
+                    </div>
+                    <textarea id="code-editor" placeholder="# Enter your code here
+print('Hello from Sandrun!')"></textarea>
+                </div>
+
+                <button id="submit-btn" class="btn-primary">Submit Job</button>
+            </section>
+
+            <!-- Active Jobs -->
+            <section id="jobs-section" class="card" style="display: none;">
+                <h2>Active Jobs</h2>
+                <div id="jobs-list"></div>
+            </section>
+
+            <!-- Job Details -->
+            <section id="job-details" class="card" style="display: none;">
+                <div class="job-header">
+                    <h2>Job: <span id="job-id"></span></h2>
+                    <span id="job-status" class="status-badge"></span>
+                </div>
+                
+                <div class="metrics">
+                    <div class="metric">
+                        <span class="metric-value" id="cpu-time">-</span>
+                        <span class="metric-label">CPU Time</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-value" id="memory-usage">-</span>
+                        <span class="metric-label">Memory</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-value" id="wall-time">-</span>
+                        <span class="metric-label">Wall Time</span>
+                    </div>
+                </div>
+
+                <div class="output-section">
+                    <h3>Output</h3>
+                    <div class="tab-group">
+                        <button class="tab active" data-output="stdout">stdout</button>
+                        <button class="tab" data-output="stderr">stderr</button>
+                        <button class="tab" data-output="files">files</button>
+                    </div>
+                    
+                    <div class="output-content">
+                        <pre id="stdout-output" class="log-output active"></pre>
+                        <pre id="stderr-output" class="log-output"></pre>
+                        <div id="files-output" class="files-list"></div>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button id="download-btn" class="btn-secondary">Download All</button>
+                    <button id="new-job-btn" class="btn-primary">New Job</button>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>No accounts • No tracking • Auto-deletes after completion</p>
+            <p><a href="https://github.com/yourusername/sandrun" target="_blank">GitHub</a> • <a href="#" id="api-docs-link">API Docs</a></p>
+        </footer>
+    </div>
+
+    <!-- API Documentation Modal -->
+    <div id="api-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>API Documentation</h2>
+            <div class="api-docs">
+                <h3>Endpoints</h3>
+                <pre>
+POST /submit         - Submit job with files
+  Form data:
+    files: tar.gz archive
+    manifest: JSON configuration
+
+GET /status/{job_id} - Check job status
+GET /logs/{job_id}   - Get stdout/stderr
+GET /outputs/{job_id} - List output files
+GET /download/{job_id}/{file} - Download file
+                </pre>
+                
+                <h3>Example: Submit with curl</h3>
+                <pre>
+curl -X POST http://localhost:8443/submit \
+  -F "files=@project.tar.gz" \
+  -F 'manifest={"entrypoint":"main.py","interpreter":"python3"}'
+                </pre>
+                
+                <h3>Example: Submit with Python</h3>
+                <pre>
+import requests
+import tarfile
+import json
+
+# Create tar.gz
+with tarfile.open('job.tar.gz', 'w:gz') as tar:
+    tar.add('main.py')
+    tar.add('data.csv')
+
+# Submit job
+with open('job.tar.gz', 'rb') as f:
+    response = requests.post('http://localhost:8443/submit',
+        files={'files': f},
+        data={'manifest': json.dumps({
+            'entrypoint': 'main.py',
+            'interpreter': 'python3'
+        })}
+    )
+    
+job = response.json()
+print(f"Job ID: {job['job_id']}")
+                </pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

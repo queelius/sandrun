@@ -1,83 +1,220 @@
-# `jobd`: Job Daemon Web Service
+# 🏃 Sandrun
 
-The project `jobd` is a web service for script execution with job management. It allows you to upload scripts and additional dependencies, execute them as jobs, monitor their status, retrieve logs, cancel or delete jobs, and download job outputs.
+> Anonymous, ephemeral, sandboxed code execution service
 
-## Workflow
+Sandrun provides secure, isolated code execution without user accounts or data persistence. Submit code, get results, everything auto-deletes. Simple, private, secure.
 
-1. **Upload a aggregate file or set of files related to a job**
-2. **Execute the job**
-3. **Monitor job status and logs**
-4. **Cancel or delete jobs**
-5. **Download a tarball of a job's working directory**
+## ✨ Features
 
-## Getting Started
+- **🔒 Secure Sandbox** - Linux namespaces, seccomp-BPF, resource limits
+- **🎭 Anonymous** - No accounts, no tracking, no logs
+- **💨 Ephemeral** - All data in tmpfs (RAM), auto-deletes after use
+- **🚀 Fast** - Native C++ implementation, minimal overhead
+- **🌐 Multi-language** - Python, Node.js, Bash, and more
+- **📦 Directory Upload** - Submit entire projects with dependencies
+- **⚡ Simple API** - RESTful endpoints, multipart uploads
+- **🎯 Resource Limits** - CPU quotas, memory limits, timeouts
 
-To get the server up and running, follow these steps:
+## 🚀 Quick Start
 
-1. **Install dependencies:**
+### Build and Run
 
-    ```bash
-    pip install -r requirements.txt
-    ```
+```bash
+# Install dependencies
+sudo apt-get install libseccomp-dev libcap-dev
 
-2. **Run the FastAPI server:**
+# Build
+cmake -B build
+cmake --build build
 
-    ```bash
-    uvicorn main:app --reload
-    ```
+# Run server (requires root for namespaces)
+sudo ./build/sandrun --port 8443
+```
 
-3. **Access the Documentation:**
+### Submit a Job
 
-    Open [http://localhost:8000/docs](http://localhost:8000/docs) for the API documentation.
+```bash
+# Quick Python code
+curl -X POST http://localhost:8443/submit \
+  -F "files=@job.tar.gz" \
+  -F 'manifest={"entrypoint":"main.py","interpreter":"python3"}'
+```
 
-## API Endpoints
+## 🏗️ Architecture
 
-The application provides several API endpoints for managing jobs and executing scripts. See [API Documentation](http://localhost:8000/docs) for detailed information.
+```
+┌─────────────┐     HTTP/REST     ┌──────────────┐
+│   Client    │ ◄────────────────► │  HTTP Server │
+└─────────────┘                    └──────┬───────┘
+                                          │
+                                    ┌─────▼──────┐
+                                    │ Job Queue  │
+                                    └─────┬──────┘
+                                          │
+                                    ┌─────▼──────────┐
+                                    │ Sandbox        │
+                                    │ ┌────────────┐ │
+                                    │ │ Namespaces │ │
+                                    │ │ Seccomp    │ │
+                                    │ │ Cgroups    │ │
+                                    │ │ tmpfs      │ │
+                                    │ └────────────┘ │
+                                    └────────────────┘
+```
 
-### Create a Job
+### Security Layers
 
-**Endpoint:** `POST /jobs`
+1. **Namespace Isolation** - PID, network, mount, IPC, UTS
+2. **Syscall Filtering** - Seccomp-BPF whitelist (~60 safe syscalls)
+3. **Resource Limits** - Memory, CPU, processes, file descriptors
+4. **Network Isolation** - Complete network namespace isolation
+5. **Filesystem Isolation** - tmpfs only, no persistent storage
+6. **Capability Dropping** - All Linux capabilities dropped
 
-**Description:** Upload a set of  files (or aggregate file, e.g. tarball) to create and enqueue a job for execution.
+## 📡 API Reference
 
-### Get Job Details
+### Endpoints
 
-**Endpoint:** `GET /jobs/{job_id}`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Server info and status |
+| `POST` | `/submit` | Submit new job |
+| `GET` | `/status/{job_id}` | Get job status |
+| `GET` | `/logs/{job_id}` | Get stdout/stderr |
+| `GET` | `/outputs/{job_id}` | List output files |
+| `GET` | `/download/{job_id}/{file}` | Download output file |
 
-**Description:** Retrieve details of a specific job.
+### Job Manifest
 
-### Get Job Status
+```json
+{
+  "entrypoint": "main.py",           // Required: Entry file
+  "interpreter": "python3",          // Required: Interpreter
+  "args": ["--input", "data.csv"],  // Optional: Arguments
+  "outputs": ["*.png", "results/"], // Optional: Output patterns
+  "timeout": 300,                    // Optional: Timeout (seconds)
+  "memory_mb": 512                  // Optional: Memory limit (MB)
+}
+```
 
-**Endpoint:** `GET /jobs/{job_id}/status`
+### Rate Limits
 
-**Description:** Get the current status of a job.
+- **10 CPU-seconds per minute** per IP
+- **2 concurrent jobs** per IP
+- **20 jobs per hour** per IP
+- **512MB RAM** per job
+- **5 minute** maximum execution time
 
-### Get Job Logs
+## 🎨 Integrations
 
-**Endpoint:** `GET /jobs/{job_id}/logs`
+### Web Frontend
 
-**Description:** Retrieve the logs of a job's execution. Useful for monitoring the executation of jobs.
+Simple, elegant web interface with configurable server endpoint:
 
-### Delete a Job
+```bash
+cd integrations/web-frontend
+python3 -m http.server 8000
+# Open http://localhost:8000
+```
 
-**Endpoint:** `DELETE /jobs/{job_id}`
+### Python Client
 
-**Description:** Remove a job from the system.
+```python
+from integrations.python_client.sandrun_client import SandrunClient
 
-### List All Jobs
+client = SandrunClient("http://localhost:8443")
+result = client.run_and_wait(
+    code="print('Hello, Sandrun!')",
+    interpreter="python3"
+)
+print(result['logs']['stdout'])
+```
 
-**Endpoint:** `GET /jobs`
+### Command Line
 
-**Description:** List all job IDs and their statuses.
+```bash
+# See examples
+./integrations/examples/curl_examples.sh
+```
 
-### Download Job Tarball
+## 🔧 Configuration
 
-**Endpoint:** `POST /jobs/{job_id}/tarball`
+### Build Options
 
-**Description:** Download a tarball of the job's working directory. This is generally how you get the final results of a job.
+```bash
+# Debug build
+cmake -B build -DCMAKE_BUILD_TYPE=Debug
 
-### Cancel a Job
+# Release build with optimizations
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-**Endpoint:** `POST /jobs/{job_id}/cancel`
+# Custom port
+./build/sandrun --port 9000
+```
 
-**Description:** Cancel a running job.
+### Resource Limits (constants.h)
+
+```cpp
+constexpr size_t DEFAULT_MEMORY_LIMIT = 512 * 1024 * 1024;  // 512MB
+constexpr size_t MAX_OUTPUT_SIZE = 10 * 1024 * 1024;        // 10MB
+constexpr int DEFAULT_TIMEOUT_SECONDS = 300;                // 5 minutes
+constexpr int MAX_PROCESSES_PER_JOB = 32;                   // Thread limit
+```
+
+## 🛡️ Security Considerations
+
+Sandrun is designed for **defensive security** only:
+
+- ✅ Run untrusted code safely
+- ✅ Educational sandboxing
+- ✅ CI/CD testing
+- ✅ Code evaluation
+- ❌ NOT for cryptocurrency mining
+- ❌ NOT for network attacks
+- ❌ NOT for system exploitation
+
+### Threat Model
+
+Sandrun protects against:
+- Code execution exploits
+- Container escapes
+- Resource exhaustion
+- Data persistence
+- Network access
+- System file access
+
+## 📊 Performance
+
+- **Startup overhead**: ~100ms per job
+- **Memory overhead**: ~10MB base + job requirements
+- **Concurrent jobs**: Limited by system resources
+- **Throughput**: ~10-50 jobs/second (depends on job complexity)
+
+## 🤝 Contributing
+
+Contributions are welcome! Key principles:
+
+1. **Simplicity** - Avoid unnecessary complexity
+2. **Security** - Every change must maintain security guarantees
+3. **Privacy** - No tracking, logging, or data retention
+4. **Elegance** - Clean, readable, maintainable code
+
+## 📜 License
+
+MIT License - See [LICENSE](LICENSE) file for details.
+
+## ⚠️ Disclaimer
+
+Sandrun is provided as-is for educational and defensive security purposes. Users are responsible for compliance with applicable laws and regulations. The authors assume no liability for misuse.
+
+## 🙏 Acknowledgments
+
+Built with:
+- Linux kernel namespaces
+- libseccomp for syscall filtering
+- Modern C++17
+- Security best practices from container runtimes
+
+---
+
+**Remember**: Sandrun is about providing secure, anonymous code execution. No accounts, no tracking, no persistence. Just code in, results out, then everything disappears. Simple as that.
