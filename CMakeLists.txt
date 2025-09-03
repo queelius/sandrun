@@ -42,3 +42,9 @@ target_link_libraries(sandrun
 install(TARGETS sandrun
     RUNTIME DESTINATION bin
 )
+
+# Enable testing
+enable_testing()
+
+# Add tests subdirectory
+add_subdirectory(tests)
