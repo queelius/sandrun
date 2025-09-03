@@ -7,6 +7,7 @@
 #include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sched.h>
 #include <seccomp.h>
 #include <linux/capability.h>
@@ -155,6 +156,11 @@ private:
         mount("tmpfs", work_dir.c_str(), "tmpfs", MS_NOSUID | MS_NODEV, mount_opts.c_str());
         chdir(work_dir.c_str());
         
+        // Setup GPU access if enabled
+        if (config.gpu_enabled) {
+            setup_gpu_access();
+        }
+        
         // Drop all capabilities
         prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
         prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
@@ -182,6 +188,69 @@ private:
         // Python needs to create threads for imports and some libraries
         limit.rlim_cur = limit.rlim_max = MAX_PROCESSES_PER_JOB;
         setrlimit(RLIMIT_NPROC, &limit);
+    }
+    
+    void setup_gpu_access() {
+        // Create device directory in sandbox
+        mkdir("dev", 0755);
+        
+        // Bind mount NVIDIA devices
+        std::vector<std::string> nvidia_devices = {
+            "/dev/nvidia" + std::to_string(config.gpu_device_id),
+            "/dev/nvidiactl",
+            "/dev/nvidia-uvm",
+            "/dev/nvidia-uvm-tools",
+            "/dev/nvidia-modeset"
+        };
+        
+        for (const auto& device : nvidia_devices) {
+            if (fs::exists(device)) {
+                std::string sandbox_device = "dev/" + fs::path(device).filename().string();
+                
+                // Create device node
+                mknod(sandbox_device.c_str(), S_IFCHR | 0666, 0);
+                
+                // Bind mount the device
+                if (mount(device.c_str(), sandbox_device.c_str(), nullptr, MS_BIND, nullptr) == 0) {
+                    // Make it read-write for GPU access
+                    mount(nullptr, sandbox_device.c_str(), nullptr, MS_REMOUNT | MS_BIND, nullptr);
+                }
+            }
+        }
+        
+        // Mount CUDA libraries read-only
+        std::vector<std::string> cuda_paths = {
+            "/usr/local/cuda",
+            "/usr/lib/x86_64-linux-gnu/libcuda.so",
+            "/usr/lib/x86_64-linux-gnu/libnvidia-ml.so",
+            "/usr/lib/x86_64-linux-gnu/libcudnn.so"
+        };
+        
+        mkdir("usr", 0755);
+        mkdir("usr/local", 0755);
+        mkdir("usr/lib", 0755);
+        
+        for (const auto& cuda_path : cuda_paths) {
+            if (fs::exists(cuda_path)) {
+                std::string sandbox_path = cuda_path.substr(1); // Remove leading /
+                
+                // Create parent directories if needed
+                fs::create_directories(fs::path(sandbox_path).parent_path());
+                
+                // Bind mount read-only
+                mount(cuda_path.c_str(), sandbox_path.c_str(), nullptr, MS_BIND | MS_RDONLY, nullptr);
+            }
+        }
+        
+        // Set CUDA environment variables
+        setenv("CUDA_VISIBLE_DEVICES", std::to_string(config.gpu_device_id).c_str(), 1);
+        setenv("CUDA_DEVICE_ORDER", "PCI_BUS_ID", 1);
+        
+        // Set GPU memory limit if nvidia-smi is available
+        std::string gpu_mem_limit_mb = std::to_string(config.gpu_memory_limit_bytes / (1024 * 1024));
+        std::string nvidia_smi_cmd = "nvidia-smi -i " + std::to_string(config.gpu_device_id) + 
+                                     " -pl " + gpu_mem_limit_mb + " 2>/dev/null";
+        system(nvidia_smi_cmd.c_str());
     }
     
     void setup_seccomp() {
@@ -254,6 +323,27 @@ private:
         
         for (int syscall : allowed) {
             seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscall, 0);
+        }
+        
+        // Additional syscalls for GPU access
+        if (config.gpu_enabled) {
+            const int gpu_syscalls[] = {
+                SCMP_SYS(ioctl),        // GPU driver ioctls
+                SCMP_SYS(mmap2),        // GPU memory mapping
+                SCMP_SYS(statx),        // Modern stat for device files
+                SCMP_SYS(readlinkat),   // GPU driver symlink resolution
+                SCMP_SYS(getpriority),  // GPU scheduling
+                SCMP_SYS(setpriority),  // GPU scheduling
+                SCMP_SYS(sched_getscheduler),
+                SCMP_SYS(sched_setscheduler),
+                SCMP_SYS(memfd_create), // GPU shared memory
+                SCMP_SYS(fstatfs),      // GPU filesystem info
+                SCMP_SYS(fstatfs64)     // GPU filesystem info (64-bit)
+            };
+            
+            for (int syscall : gpu_syscalls) {
+                seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscall, 0);
+            }
         }
         
         seccomp_load(ctx);

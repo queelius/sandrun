@@ -21,6 +21,11 @@ constexpr int JOB_CLEANUP_AFTER_SECONDS = 60;                     // Auto-delete
 constexpr int MAX_PROCESSES_PER_JOB = 32;                        // Max threads/processes
 constexpr int MAX_OPEN_FILES = 256;                              // Max file descriptors
 
+// GPU limits
+constexpr size_t DEFAULT_GPU_MEMORY_LIMIT_BYTES = 8ULL * 1024 * 1024 * 1024;  // 8GB default
+constexpr int DEFAULT_GPU_TIMEOUT_SECONDS = 600;                  // 10 minutes for GPU jobs
+constexpr int MAX_GPUS_PER_JOB = 1;                              // Single GPU per job for now
+
 // Rate limiting
 constexpr int MAX_CONCURRENT_JOBS_PER_IP = 2;                    // Per IP limit
 constexpr int MAX_JOBS_PER_HOUR = 10;                           // Hourly job limit

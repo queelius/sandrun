@@ -18,9 +18,9 @@ add_compile_options(
 # Find required system libraries
 find_package(Threads REQUIRED)
 
-# Main executable (v2 with multipart support)
+# Main executable
 add_executable(sandrun
-    src/main_v2.cpp
+    src/main.cpp
     src/sandbox.cpp
     src/http_server.cpp
     src/multipart.cpp

@@ -37,6 +37,11 @@ struct SandboxConfig {
     std::chrono::seconds timeout = std::chrono::seconds(DEFAULT_TIMEOUT_SECONDS);
     bool allow_network = false;                      // Airgapped by default
     std::string interpreter = "python3";              // Default interpreter
+    
+    // GPU configuration
+    bool gpu_enabled = false;                        // GPU access disabled by default
+    int gpu_device_id = 0;                          // Which GPU to use (0-based)
+    size_t gpu_memory_limit_bytes = DEFAULT_GPU_MEMORY_LIMIT_BYTES;
 };
 
 // Execute code in sandboxed environment

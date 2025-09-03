@@ -87,6 +87,25 @@ Each job submitted to Sandrun can include a manifest file (`job.json`) that spec
 - **Maximum**: 60
 - **Description**: CPU seconds per minute quota
 
+### `gpu` (optional)
+- **Type**: object
+- **Description**: GPU requirements for ML/compute workloads
+- **Fields**:
+  - `required` (boolean): Whether GPU is required
+  - `device_id` (integer): Specific GPU device (default: 0)
+  - `min_vram_gb` (integer): Minimum VRAM required in GB
+  - `cuda_version` (string): Minimum CUDA version (e.g., "11.8")
+  - `compute_capability` (string): Minimum compute capability (e.g., "7.0")
+- **Example**:
+  ```json
+  {
+    "required": true,
+    "min_vram_gb": 8,
+    "cuda_version": "11.8",
+    "compute_capability": "7.0"
+  }
+  ```
+
 ## Execution Flow
 
 1. **Upload**: User uploads directory with code and `job.json`
@@ -146,6 +165,38 @@ Each job submitted to Sandrun can include a manifest file (`job.json`) that spec
   "interpreter": "Rscript",
   "args": ["--confidence", "0.95"],
   "outputs": ["plots/*.png", "results.rds"]
+}
+```
+
+### ML Training with GPU
+```json
+{
+  "entrypoint": "train.py",
+  "args": ["--epochs", "10", "--batch-size", "32"],
+  "gpu": {
+    "required": true,
+    "min_vram_gb": 8,
+    "cuda_version": "11.8"
+  },
+  "outputs": ["checkpoints/", "metrics.json"],
+  "requirements": "requirements.txt",
+  "timeout": 1800,
+  "memory_mb": 2048
+}
+```
+
+### Stable Diffusion Inference
+```json
+{
+  "entrypoint": "generate.py",
+  "args": ["--prompt", "a beautiful sunset", "--steps", "50"],
+  "gpu": {
+    "required": true,
+    "min_vram_gb": 6,
+    "compute_capability": "7.0"
+  },
+  "outputs": ["images/*.png"],
+  "timeout": 600
 }
 ```
 
