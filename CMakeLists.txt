@@ -17,6 +17,7 @@ add_compile_options(
 
 # Find required system libraries
 find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 # Main executable
 add_executable(sandrun
@@ -26,11 +27,13 @@ add_executable(sandrun
     src/multipart.cpp
     src/rate_limiter.cpp
     src/job_executor.cpp
+    src/proof.cpp
 )
 
 target_link_libraries(sandrun
     PRIVATE
     Threads::Threads
+    OpenSSL::Crypto
     seccomp  # For syscall filtering
     cap      # For capability management
 )
