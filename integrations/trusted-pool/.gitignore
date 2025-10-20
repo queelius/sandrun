@@ -1,0 +1,6 @@
+# Private keys
+*.pem
+
+# Temporary test files
+/tmp/test_pool_*
+workers.json
