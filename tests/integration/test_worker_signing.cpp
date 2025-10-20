@@ -5,6 +5,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <thread>
+#include <mutex>
+#include <vector>
 
 namespace sandrun {
 namespace {
@@ -133,88 +136,36 @@ TEST_F(WorkerSigningIntegrationTest, TamperedJobResultFailsVerification) {
         << "Original result should still verify";
 }
 
-TEST_F(WorkerSigningIntegrationTest, ModifiedExitCodeFailsVerification) {
-    // Given: A signed job result with exit code 1 (failure)
+TEST_F(WorkerSigningIntegrationTest, AnyDataModificationFailsVerification) {
+    // Given: A worker and signed job result
     auto worker = WorkerIdentity::generate();
     ASSERT_NE(worker, nullptr);
 
-    std::ostringstream result_with_error;
-    result_with_error << "job123|1|1.0|128|output.txt:hash|";  // exit_code = 1
+    std::ostringstream original;
+    original << "job123|0|5.5|1024|output1.txt:hash1|output2.txt:hash2|";
 
-    std::string signature = worker->sign(result_with_error.str());
+    std::string signature = worker->sign(original.str());
     std::string worker_id = worker->get_worker_id();
 
-    // When: Attacker tries to change exit code to 0 (success)
-    std::ostringstream modified_result;
-    modified_result << "job123|0|1.0|128|output.txt:hash|";  // exit_code = 0
+    // When: Attempting various modifications
+    std::vector<std::pair<std::string, std::string>> tampering_attempts = {
+        {"exit_code", "job123|1|5.5|1024|output1.txt:hash1|output2.txt:hash2|"},
+        {"cpu_time", "job123|0|0.1|1024|output1.txt:hash1|output2.txt:hash2|"},
+        {"memory", "job123|0|5.5|64|output1.txt:hash1|output2.txt:hash2|"},
+        {"file_hash", "job123|0|5.5|1024|output1.txt:TAMPERED|output2.txt:hash2|"},
+        {"add_file", "job123|0|5.5|1024|output1.txt:hash1|output2.txt:hash2|extra.txt:hash3|"},
+        {"remove_file", "job123|0|5.5|1024|output1.txt:hash1|"}
+    };
 
-    // Then: Verification should fail
-    EXPECT_FALSE(WorkerIdentity::verify(modified_result.str(), signature, worker_id))
-        << "Cannot change exit code without invalidating signature";
+    // Then: All modifications should fail verification
+    for (const auto& [modification_type, tampered_data] : tampering_attempts) {
+        EXPECT_FALSE(WorkerIdentity::verify(tampered_data, signature, worker_id))
+            << "Failed to detect " << modification_type << " modification";
+    }
 
-    // Original should verify
-    EXPECT_TRUE(WorkerIdentity::verify(result_with_error.str(), signature, worker_id))
-        << "Original result should verify";
-}
-
-TEST_F(WorkerSigningIntegrationTest, ModifiedResourceUsageFailsVerification) {
-    // Given: A signed job result with resource usage
-    auto worker = WorkerIdentity::generate();
-    ASSERT_NE(worker, nullptr);
-
-    std::ostringstream original_result;
-    original_result << "job123|0|5.5|1024|output.txt:hash|";  // 5.5s CPU, 1024MB RAM
-
-    std::string signature = worker->sign(original_result.str());
-    std::string worker_id = worker->get_worker_id();
-
-    // When: Attacker tries to reduce reported resource usage
-    std::ostringstream modified_result;
-    modified_result << "job123|0|0.1|64|output.txt:hash|";  // 0.1s CPU, 64MB RAM
-
-    // Then: Verification should fail
-    EXPECT_FALSE(WorkerIdentity::verify(modified_result.str(), signature, worker_id))
-        << "Cannot modify resource usage without invalidating signature";
-}
-
-TEST_F(WorkerSigningIntegrationTest, AddingOutputFileFailsVerification) {
-    // Given: A signed job result with one output file
-    auto worker = WorkerIdentity::generate();
-    ASSERT_NE(worker, nullptr);
-
-    std::ostringstream original_result;
-    original_result << "job123|0|1.0|128|output.txt:hash1|";
-
-    std::string signature = worker->sign(original_result.str());
-    std::string worker_id = worker->get_worker_id();
-
-    // When: Attacker tries to add another output file
-    std::ostringstream modified_result;
-    modified_result << "job123|0|1.0|128|output.txt:hash1|malicious.txt:hash2|";
-
-    // Then: Verification should fail
-    EXPECT_FALSE(WorkerIdentity::verify(modified_result.str(), signature, worker_id))
-        << "Cannot add output files without invalidating signature";
-}
-
-TEST_F(WorkerSigningIntegrationTest, RemovingOutputFileFailsVerification) {
-    // Given: A signed job result with multiple output files
-    auto worker = WorkerIdentity::generate();
-    ASSERT_NE(worker, nullptr);
-
-    std::ostringstream original_result;
-    original_result << "job123|0|1.0|128|output1.txt:hash1|output2.txt:hash2|";
-
-    std::string signature = worker->sign(original_result.str());
-    std::string worker_id = worker->get_worker_id();
-
-    // When: Attacker tries to remove an output file
-    std::ostringstream modified_result;
-    modified_result << "job123|0|1.0|128|output1.txt:hash1|";  // Removed output2.txt
-
-    // Then: Verification should fail
-    EXPECT_FALSE(WorkerIdentity::verify(modified_result.str(), signature, worker_id))
-        << "Cannot remove output files without invalidating signature";
+    // And: Original should still verify
+    EXPECT_TRUE(WorkerIdentity::verify(original.str(), signature, worker_id))
+        << "Original data should still verify";
 }
 
 // ============================================================================
@@ -530,6 +481,49 @@ TEST_F(WorkerSigningIntegrationTest, SignatureHandlesSpecialCharactersInData) {
     // Then: Should verify correctly
     EXPECT_TRUE(WorkerIdentity::verify(special_result.str(), signature, worker_id))
         << "Should handle special characters in data";
+}
+
+// ============================================================================
+// Concurrent Operations Tests
+// ============================================================================
+
+TEST_F(WorkerSigningIntegrationTest, ConcurrentSignatureGeneration) {
+    // Given: Multiple threads using same worker identity
+    auto worker = WorkerIdentity::generate();
+    ASSERT_NE(worker, nullptr);
+
+    std::string worker_id = worker->get_worker_id();
+    const int num_threads = 10;
+    const int sigs_per_thread = 100;
+
+    std::vector<std::thread> threads;
+    std::mutex results_mutex;
+    std::vector<std::pair<std::string, std::string>> all_signatures;
+
+    // When: Multiple threads generate signatures concurrently
+    for (int t = 0; t < num_threads; t++) {
+        threads.emplace_back([&, t]() {
+            for (int i = 0; i < sigs_per_thread; i++) {
+                std::string data = "thread_" + std::to_string(t) + "_sig_" + std::to_string(i);
+                std::string sig = worker->sign(data);
+
+                std::lock_guard<std::mutex> lock(results_mutex);
+                all_signatures.push_back({data, sig});
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    // Then: All signatures should be valid
+    EXPECT_EQ(all_signatures.size(), num_threads * sigs_per_thread);
+
+    for (const auto& [data, signature] : all_signatures) {
+        EXPECT_TRUE(WorkerIdentity::verify(data, signature, worker_id))
+            << "Concurrent signature should be valid: " << data;
+    }
 }
 
 } // namespace

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "file_utils.h"
 #include "job_executor.h"
+#include "job_hash.h"
 #include <fstream>
 #include <filesystem>
 #include <sstream>
@@ -30,25 +31,6 @@ protected:
         return filepath;
     }
 
-    // Helper to calculate job hash (mimics main.cpp logic)
-    std::string calculate_job_hash(
-        const std::string& entrypoint,
-        const std::string& interpreter,
-        const std::string& environment,
-        const std::vector<std::string>& args,
-        const std::string& entrypoint_content
-    ) {
-        std::ostringstream job_data;
-        job_data << entrypoint << "|"
-                 << interpreter << "|"
-                 << environment << "|";
-        for (const auto& arg : args) {
-            job_data << arg << "|";
-        }
-        job_data << entrypoint_content;
-        return FileUtils::sha256_string(job_data.str());
-    }
-
     std::filesystem::path test_dir;
 };
 
@@ -58,64 +40,56 @@ protected:
 
 TEST_F(JobVerificationTest, JobHash_BasicCalculation) {
     // Given: A simple job with entrypoint
+    JobDefinition job{"main.py", "python3", "", {}, "print('hello')"};
+
     // When: Calculating job hash
+    std::string hash1 = job.calculate_hash();
+    std::string hash2 = job.calculate_hash();
+
     // Then: Should produce consistent hash
-
-    std::string entrypoint = "main.py";
-    std::string interpreter = "python3";
-    std::string environment = "";
-    std::vector<std::string> args;
-    std::string code = "print('hello')";
-
-    std::string hash1 = calculate_job_hash(entrypoint, interpreter, environment, args, code);
-    std::string hash2 = calculate_job_hash(entrypoint, interpreter, environment, args, code);
-
     EXPECT_EQ(hash1, hash2) << "Job hash should be deterministic";
     EXPECT_EQ(hash1.length(), 64) << "Should be valid SHA256 hash";
 }
 
 TEST_F(JobVerificationTest, JobHash_IdenticalJobsSameHash) {
     // Given: Two identical jobs
+    JobDefinition job1{"main.py", "python3", "", {}, "print('test')"};
+    JobDefinition job2{"main.py", "python3", "", {}, "print('test')"};
+
     // When: Calculating hashes for both
+    std::string hash1 = job1.calculate_hash();
+    std::string hash2 = job2.calculate_hash();
+
     // Then: Should produce identical hashes
-
-    std::string code = "print('test')";
-    std::vector<std::string> args;
-
-    std::string hash1 = calculate_job_hash("main.py", "python3", "", args, code);
-    std::string hash2 = calculate_job_hash("main.py", "python3", "", args, code);
-
     EXPECT_EQ(hash1, hash2) << "Identical jobs should have identical hashes";
 }
 
 TEST_F(JobVerificationTest, JobHash_DifferentCodeDifferentHash) {
     // Given: Jobs with different code
+    JobDefinition job1{"main.py", "python3", "", {}, "print('test1')"};
+    JobDefinition job2{"main.py", "python3", "", {}, "print('test2')"};
+
     // When: Calculating hashes
+    std::string hash1 = job1.calculate_hash();
+    std::string hash2 = job2.calculate_hash();
+
     // Then: Should produce different hashes
-
-    std::vector<std::string> args;
-
-    std::string hash1 = calculate_job_hash("main.py", "python3", "", args, "print('test1')");
-    std::string hash2 = calculate_job_hash("main.py", "python3", "", args, "print('test2')");
-
     EXPECT_NE(hash1, hash2) << "Different code should produce different hashes";
 }
 
 TEST_F(JobVerificationTest, JobHash_DifferentArgsDifferentHash) {
     // Given: Same code but different arguments
-    // When: Calculating hashes
-    // Then: Should produce different hashes
-
     std::string code = "import sys; print(sys.argv)";
+    JobDefinition job1{"main.py", "python3", "", {"--input", "data1.csv"}, code};
+    JobDefinition job2{"main.py", "python3", "", {"--input", "data2.csv"}, code};
+    JobDefinition job3{"main.py", "python3", "", {}, code};
 
-    std::vector<std::string> args1 = {"--input", "data1.csv"};
-    std::vector<std::string> args2 = {"--input", "data2.csv"};
-    std::vector<std::string> args3;
+    // When: Calculating hashes
+    std::string hash1 = job1.calculate_hash();
+    std::string hash2 = job2.calculate_hash();
+    std::string hash3 = job3.calculate_hash();
 
-    std::string hash1 = calculate_job_hash("main.py", "python3", "", args1, code);
-    std::string hash2 = calculate_job_hash("main.py", "python3", "", args2, code);
-    std::string hash3 = calculate_job_hash("main.py", "python3", "", args3, code);
-
+    // Then: Should produce different hashes
     EXPECT_NE(hash1, hash2) << "Different args should produce different hashes";
     EXPECT_NE(hash1, hash3) << "Args vs no args should produce different hashes";
     EXPECT_NE(hash2, hash3);
@@ -123,45 +97,45 @@ TEST_F(JobVerificationTest, JobHash_DifferentArgsDifferentHash) {
 
 TEST_F(JobVerificationTest, JobHash_DifferentInterpreterDifferentHash) {
     // Given: Same code but different interpreters
-    // When: Calculating hashes
-    // Then: Should produce different hashes
-
     std::string code = "console.log('test')";
-    std::vector<std::string> args;
+    JobDefinition job_node{"main.js", "node", "", {}, code};
+    JobDefinition job_python{"main.js", "python3", "", {}, code};
 
-    std::string hash_node = calculate_job_hash("main.js", "node", "", args, code);
-    std::string hash_python = calculate_job_hash("main.js", "python3", "", args, code);
+    // When: Calculating hashes
+    std::string hash_node = job_node.calculate_hash();
+    std::string hash_python = job_python.calculate_hash();
 
+    // Then: Should produce different hashes
     EXPECT_NE(hash_node, hash_python)
         << "Different interpreters should produce different hashes";
 }
 
 TEST_F(JobVerificationTest, JobHash_DifferentEnvironmentDifferentHash) {
     // Given: Same code but different environments
-    // When: Calculating hashes
-    // Then: Should produce different hashes
-
     std::string code = "import torch";
-    std::vector<std::string> args;
+    JobDefinition job1{"main.py", "python3", "", {}, code};
+    JobDefinition job2{"main.py", "python3", "pytorch", {}, code};
 
-    std::string hash1 = calculate_job_hash("main.py", "python3", "", args, code);
-    std::string hash2 = calculate_job_hash("main.py", "python3", "pytorch", args, code);
+    // When: Calculating hashes
+    std::string hash1 = job1.calculate_hash();
+    std::string hash2 = job2.calculate_hash();
 
+    // Then: Should produce different hashes
     EXPECT_NE(hash1, hash2)
         << "Different environments should produce different hashes";
 }
 
 TEST_F(JobVerificationTest, JobHash_DifferentEntrypointDifferentHash) {
     // Given: Different entrypoint names
-    // When: Calculating hashes
-    // Then: Should produce different hashes
-
     std::string code = "print('test')";
-    std::vector<std::string> args;
+    JobDefinition job1{"main.py", "python3", "", {}, code};
+    JobDefinition job2{"script.py", "python3", "", {}, code};
 
-    std::string hash1 = calculate_job_hash("main.py", "python3", "", args, code);
-    std::string hash2 = calculate_job_hash("script.py", "python3", "", args, code);
+    // When: Calculating hashes
+    std::string hash1 = job1.calculate_hash();
+    std::string hash2 = job2.calculate_hash();
 
+    // Then: Should produce different hashes
     EXPECT_NE(hash1, hash2)
         << "Different entrypoints should produce different hashes";
 }
@@ -268,13 +242,8 @@ print('Job completed')
     create_file("main.py", script);
 
     // Calculate job hash
-    std::string job_hash = calculate_job_hash(
-        "main.py",
-        "python3",
-        "",
-        std::vector<std::string>(),
-        script
-    );
+    JobDefinition job{"main.py", "python3", "", {}, script};
+    std::string job_hash = job.calculate_hash();
 
     EXPECT_EQ(job_hash.length(), 64) << "Should have valid job hash";
 
@@ -385,7 +354,8 @@ TEST_F(JobVerificationTest, Verification_ReproducibleComputation) {
     create_file("main.py", script);
 
     // First execution
-    std::string job_hash1 = calculate_job_hash("main.py", "python3", "", {}, script);
+    JobDefinition job{"main.py", "python3", "", {}, script};
+    std::string job_hash1 = job.calculate_hash();
     auto result1 = JobExecutor::execute(test_dir.string(), "python3", "main.py", {}, "");
 
     EXPECT_EQ(result1.exit_code, 0);
@@ -396,7 +366,7 @@ TEST_F(JobVerificationTest, Verification_ReproducibleComputation) {
     create_file("main.py", script);
 
     // Second execution
-    std::string job_hash2 = calculate_job_hash("main.py", "python3", "", {}, script);
+    std::string job_hash2 = job.calculate_hash();
     auto result2 = JobExecutor::execute(test_dir.string(), "python3", "main.py", {}, "");
 
     EXPECT_EQ(result2.exit_code, 0);
@@ -408,15 +378,16 @@ TEST_F(JobVerificationTest, Verification_ReproducibleComputation) {
 
 TEST_F(JobVerificationTest, Verification_DetectCodeTampering) {
     // Given: Two jobs with slightly different code
-    // When: Calculating job hashes
-    // Then: Should detect the difference
-
     std::string code_original = "result = 2 + 2\nprint(result)";
     std::string code_tampered = "result = 2 + 3\nprint(result)";  // Changed calculation
+    JobDefinition job_original{"main.py", "python3", "", {}, code_original};
+    JobDefinition job_tampered{"main.py", "python3", "", {}, code_tampered};
 
-    std::string hash_original = calculate_job_hash("main.py", "python3", "", {}, code_original);
-    std::string hash_tampered = calculate_job_hash("main.py", "python3", "", {}, code_tampered);
+    // When: Calculating job hashes
+    std::string hash_original = job_original.calculate_hash();
+    std::string hash_tampered = job_tampered.calculate_hash();
 
+    // Then: Should detect the difference
     EXPECT_NE(hash_original, hash_tampered)
         << "Code tampering should be detected via different hash";
 }
@@ -466,7 +437,8 @@ TEST_F(JobVerificationTest, JSONOutput_HasAllRequiredFields) {
     std::string script = "print('test')";
     create_file("result.txt", "output");
 
-    std::string job_hash = calculate_job_hash("main.py", "python3", "", {}, script);
+    JobDefinition job{"main.py", "python3", "", {}, script};
+    std::string job_hash = job.calculate_hash();
     auto output_files = FileUtils::hash_directory(test_dir.string(), {"*.txt"});
 
     // Verify we have the data needed for JSON response
@@ -501,6 +473,60 @@ TEST_F(JobVerificationTest, JSONOutput_MultipleOutputFiles) {
         EXPECT_GT(metadata.size_bytes, 0) << "File " << path << " should have size";
         EXPECT_NE(metadata.type, FileType::OTHER) << "File " << path << " should have type";
     }
+}
+
+// ============================================================================
+// Output File Ordering Tests
+// ============================================================================
+
+TEST_F(JobVerificationTest, OutputHashing_OrderDependence) {
+    // Given: A job that produces files in different orders
+    // (This tests whether hash_directory returns deterministic results)
+
+    std::string script = R"(
+import random
+import time
+
+# Create files in random order
+files = ['output1.txt', 'output2.txt', 'output3.txt']
+random.shuffle(files)
+
+for f in files:
+    with open(f, 'w') as file:
+        file.write(f'content of {f}')
+    time.sleep(0.01)  # Small delay to ensure different timestamps
+)";
+
+    create_file("main.py", script);
+
+    // When: Running job multiple times
+    std::vector<std::string> combined_hashes;
+
+    for (int i = 0; i < 3; i++) {
+        auto result = JobExecutor::execute(test_dir.string(), "python3", "main.py", {}, "");
+        EXPECT_EQ(result.exit_code, 0);
+
+        auto output_files = FileUtils::hash_directory(test_dir.string(), {"*.txt"});
+
+        // Build combined hash of all outputs (sorted by filename for determinism)
+        std::ostringstream combined;
+        for (const auto& [filename, metadata] : output_files) {
+            combined << filename << ":" << metadata.sha256_hash << "|";
+        }
+
+        combined_hashes.push_back(FileUtils::sha256_string(combined.str()));
+
+        // Clean for next run
+        for (const auto& [filename, _] : output_files) {
+            std::filesystem::remove(test_dir / filename);
+        }
+    }
+
+    // Then: Combined hash should be identical across runs
+    // (proving that map iteration order is deterministic)
+    EXPECT_EQ(combined_hashes[0], combined_hashes[1]);
+    EXPECT_EQ(combined_hashes[1], combined_hashes[2])
+        << "Output hashing should be deterministic regardless of file creation order";
 }
 
 } // namespace

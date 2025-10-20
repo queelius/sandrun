@@ -588,5 +588,51 @@ TEST_F(WorkerIdentityTest, SignSpecialCharacters) {
         << "Should handle special characters in signed data";
 }
 
+// ============================================================================
+// Malformed Data Handling Tests
+// ============================================================================
+
+TEST_F(WorkerIdentityTest, Verify_HandlesCorruptedBase64Gracefully) {
+    // Given: A valid signature
+    auto worker = WorkerIdentity::generate();
+    ASSERT_NE(worker, nullptr);
+
+    std::string data = "test_data";
+    std::string valid_signature = worker->sign(data);
+    std::string worker_id = worker->get_worker_id();
+
+    // When: Signature is corrupted (invalid base64)
+    std::vector<std::string> corrupted_signatures = {
+        "not!valid@base64",           // Invalid characters
+        "YWJj",                        // Too short
+        "",                            // Empty
+        "====",                        // Just padding
+        valid_signature + "CORRUPTED" // Appended garbage
+    };
+
+    // Then: Should return false (not crash or throw)
+    for (const auto& corrupted : corrupted_signatures) {
+        EXPECT_FALSE(WorkerIdentity::verify(data, corrupted, worker_id))
+            << "Should gracefully reject corrupted signature: " << corrupted;
+    }
+}
+
+TEST_F(WorkerIdentityTest, FromKeyfile_HandlesCorruptedPEM) {
+    // Given: A corrupted PEM file
+    std::string corrupt_pem = (test_dir / "corrupt.pem").string();
+    std::ofstream file(corrupt_pem);
+    file << "-----BEGIN PRIVATE KEY-----\n"
+         << "CORRUPTED_BASE64_DATA_HERE\n"
+         << "-----END PRIVATE KEY-----\n";
+    file.close();
+
+    // When: Attempting to load
+    auto identity = WorkerIdentity::from_keyfile(corrupt_pem);
+
+    // Then: Should return nullptr (not crash)
+    EXPECT_EQ(identity, nullptr)
+        << "Should gracefully reject corrupted PEM file";
+}
+
 } // namespace
 } // namespace sandrun

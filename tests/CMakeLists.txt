@@ -56,6 +56,7 @@ add_executable(integration_tests
     ${CMAKE_SOURCE_DIR}/src/multipart.cpp
     ${CMAKE_SOURCE_DIR}/src/rate_limiter.cpp
     ${CMAKE_SOURCE_DIR}/src/job_executor.cpp
+    ${CMAKE_SOURCE_DIR}/src/job_hash.cpp
     ${CMAKE_SOURCE_DIR}/src/proof.cpp
     ${CMAKE_SOURCE_DIR}/src/websocket.cpp
     ${CMAKE_SOURCE_DIR}/src/file_utils.cpp

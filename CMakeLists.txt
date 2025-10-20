@@ -27,6 +27,7 @@ add_executable(sandrun
     src/multipart.cpp
     src/rate_limiter.cpp
     src/job_executor.cpp
+    src/job_hash.cpp
     src/proof.cpp
     src/websocket.cpp
     src/file_utils.cpp

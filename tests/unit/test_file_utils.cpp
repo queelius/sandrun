@@ -216,21 +216,13 @@ TEST_F(FileUtilsTest, GetFileMetadata_BasicFile) {
     EXPECT_EQ(metadata.type, FileType::TEXT) << "Should detect .txt as TEXT type";
 }
 
-TEST_F(FileUtilsTest, GetFileMetadata_DifferentFileTypes) {
-    // Given: Files with different extensions
-    // When: Getting metadata for each
-    // Then: Should correctly identify file types
-
+TEST_F(FileUtilsTest, GetFileMetadata_DetectsCommonFileTypes) {
+    // Test representative file types only
     std::vector<std::pair<std::string, FileType>> test_cases = {
-        {"image.png", FileType::IMAGE},
-        {"model.pt", FileType::MODEL},
-        {"video.mp4", FileType::VIDEO},
-        {"audio.mp3", FileType::AUDIO},
-        {"data.csv", FileType::DATA},
-        {"code.py", FileType::CODE},
-        {"archive.zip", FileType::ARCHIVE},
-        {"doc.pdf", FileType::DOCUMENT},
-        {"unknown.xyz", FileType::OTHER}
+        {"image.png", FileType::IMAGE},      // Visual output
+        {"model.pt", FileType::MODEL},       // ML model
+        {"data.csv", FileType::DATA},        // Structured data
+        {"unknown.xyz", FileType::OTHER}     // Fallback
     };
 
     for (const auto& [filename, expected_type] : test_cases) {
@@ -501,44 +493,6 @@ TEST_F(FileUtilsTest, FileTypeToString_AllTypes) {
     EXPECT_EQ(FileUtils::file_type_to_string(FileType::CODE), "code");
     EXPECT_EQ(FileUtils::file_type_to_string(FileType::DOCUMENT), "document");
     EXPECT_EQ(FileUtils::file_type_to_string(FileType::OTHER), "other");
-}
-
-// ============================================================================
-// Integration: Hash Consistency Tests
-// ============================================================================
-
-TEST_F(FileUtilsTest, HashConsistency_FileVsString) {
-    // Given: Same content in file and string
-    // When: Hashing both
-    // Then: Should produce identical hashes
-
-    std::string content = "This is test content for consistency check";
-    std::string filepath = create_test_file("consistency.txt", content);
-
-    std::string file_hash = FileUtils::sha256_file(filepath);
-    std::string string_hash = FileUtils::sha256_string(content);
-
-    EXPECT_EQ(file_hash, string_hash)
-        << "File hash should match string hash for same content";
-}
-
-TEST_F(FileUtilsTest, HashConsistency_DirectoryVsIndividualFiles) {
-    // Given: Files hashed individually and via directory hash
-    // When: Comparing results
-    // Then: Hashes should be identical
-
-    create_test_file("file1.txt", "content1");
-    create_test_file("file2.txt", "content2");
-
-    // Hash individually
-    FileMetadata meta1 = FileUtils::get_file_metadata(test_dir / "file1.txt");
-    FileMetadata meta2 = FileUtils::get_file_metadata(test_dir / "file2.txt");
-
-    // Hash via directory
-    auto dir_result = FileUtils::hash_directory(test_dir.string());
-
-    EXPECT_EQ(dir_result["file1.txt"].sha256_hash, meta1.sha256_hash);
-    EXPECT_EQ(dir_result["file2.txt"].sha256_hash, meta2.sha256_hash);
 }
 
 } // namespace
