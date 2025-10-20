@@ -81,3 +81,6 @@ sandrun_output/
 
 # Demo scripts
 demo.sh
+
+# MkDocs build output
+site/
