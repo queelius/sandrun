@@ -9,6 +9,10 @@
          <lastmod>2025-10-20</lastmod>
     </url>
     <url>
+         <loc>https://yourusername.github.io/sandrun/DEPLOYMENT/</loc>
+         <lastmod>2025-10-20</lastmod>
+    </url>
+    <url>
          <loc>https://yourusername.github.io/sandrun/api-reference/</loc>
          <lastmod>2025-10-20</lastmod>
     </url>
@@ -54,6 +58,18 @@
     </url>
     <url>
          <loc>https://yourusername.github.io/sandrun/integrations/trusted-pool/</loc>
+         <lastmod>2025-10-20</lastmod>
+    </url>
+    <url>
+         <loc>https://yourusername.github.io/sandrun/tutorials/</loc>
+         <lastmod>2025-10-20</lastmod>
+    </url>
+    <url>
+         <loc>https://yourusername.github.io/sandrun/tutorials/distributed-data-pipeline/</loc>
+         <lastmod>2025-10-20</lastmod>
+    </url>
+    <url>
+         <loc>https://yourusername.github.io/sandrun/tutorials/quick-reference/</loc>
          <lastmod>2025-10-20</lastmod>
     </url>
 </urlset>
