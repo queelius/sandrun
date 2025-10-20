@@ -28,6 +28,10 @@ add_executable(sandrun
     src/rate_limiter.cpp
     src/job_executor.cpp
     src/proof.cpp
+    src/websocket.cpp
+    src/file_utils.cpp
+    src/environment_manager.cpp
+    src/worker_identity.cpp
 )
 
 target_link_libraries(sandrun

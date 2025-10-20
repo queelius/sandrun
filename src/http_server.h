@@ -32,27 +32,34 @@ struct HttpResponse {
 // Request handler function type
 using HandlerFunc = std::function<HttpResponse(const HttpRequest&)>;
 
+// WebSocket handler function type (takes client_fd and job_id, handles WebSocket protocol)
+using WebSocketHandlerFunc = std::function<void(int client_fd, const std::string& path_param)>;
+
 // Minimal HTTP server - no external dependencies
 class HttpServer {
 public:
     HttpServer(int port = 8443);
     ~HttpServer();
-    
+
     // Register route handlers
     void route(const std::string& method, const std::string& path, HandlerFunc handler);
-    
+
+    // Register WebSocket route handler
+    void websocket_route(const std::string& path_prefix, WebSocketHandlerFunc handler);
+
     // Start server (blocks)
     void start();
-    
+
     // Stop server
     void stop();
-    
+
 private:
     int port_;
     int server_fd_;
     std::atomic<bool> running_;
     std::map<std::string, HandlerFunc> routes_;
-    
+    std::map<std::string, WebSocketHandlerFunc> ws_routes_;
+
     void handle_client(int client_fd, const std::string& client_ip);
     HttpRequest parse_request(const std::string& raw);
     std::string build_response(const HttpResponse& resp);

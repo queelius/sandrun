@@ -25,10 +25,16 @@ add_executable(unit_tests
     unit/test_rate_limiter.cpp
     unit/test_proof.cpp
     unit/test_multipart.cpp
+    unit/test_job_executor.cpp
+    unit/test_file_utils.cpp
+    unit/test_worker_identity.cpp
     ${CMAKE_SOURCE_DIR}/src/sandbox.cpp
     ${CMAKE_SOURCE_DIR}/src/rate_limiter.cpp
     ${CMAKE_SOURCE_DIR}/src/proof.cpp
     ${CMAKE_SOURCE_DIR}/src/multipart.cpp
+    ${CMAKE_SOURCE_DIR}/src/job_executor.cpp
+    ${CMAKE_SOURCE_DIR}/src/file_utils.cpp
+    ${CMAKE_SOURCE_DIR}/src/worker_identity.cpp
 )
 
 target_link_libraries(unit_tests
@@ -43,13 +49,18 @@ target_link_libraries(unit_tests
 add_executable(integration_tests
     integration/test_job_execution.cpp
     integration/test_gpu_support.cpp
-    integration/test_api_endpoints.cpp
+    integration/test_job_verification.cpp
+    integration/test_worker_signing.cpp
     ${CMAKE_SOURCE_DIR}/src/sandbox.cpp
     ${CMAKE_SOURCE_DIR}/src/http_server.cpp
     ${CMAKE_SOURCE_DIR}/src/multipart.cpp
     ${CMAKE_SOURCE_DIR}/src/rate_limiter.cpp
     ${CMAKE_SOURCE_DIR}/src/job_executor.cpp
     ${CMAKE_SOURCE_DIR}/src/proof.cpp
+    ${CMAKE_SOURCE_DIR}/src/websocket.cpp
+    ${CMAKE_SOURCE_DIR}/src/file_utils.cpp
+    ${CMAKE_SOURCE_DIR}/src/environment_manager.cpp
+    ${CMAKE_SOURCE_DIR}/src/worker_identity.cpp
 )
 
 target_link_libraries(integration_tests

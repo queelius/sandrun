@@ -5,6 +5,8 @@
 #include "proof.h"
 #include <filesystem>
 #include <fstream>
+#include <thread>
+#include <sstream>
 
 namespace sandrun {
 namespace {
@@ -53,7 +55,7 @@ if __name__ == "__main__":
 )";
 
     // Create job with manifest
-    Job job;
+    TestJob job;
     job.id = "integration_test_1";
     job.manifest.entrypoint = "process.py";
     job.manifest.interpreter = "python3";
@@ -128,7 +130,7 @@ stats = {
 print(f"Statistics: {stats}")
 )";
 
-    Job job;
+    TestJob job;
     job.id = "test_deps";
     job.manifest.entrypoint = "analyze.py";
     job.manifest.requirements = "requirements.txt";
@@ -181,7 +183,7 @@ with open('data.json', 'w') as f:
 print('Files created')
 )";
 
-    Job job;
+    TestJob job;
     job.id = "file_output_test";
     job.manifest.entrypoint = "generate.py";
     job.manifest.outputs = {"result.txt", "data.json"};

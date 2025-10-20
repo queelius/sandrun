@@ -1,5 +1,6 @@
 #include "http_server.h"
 #include "constants.h"
+#include "websocket.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -21,6 +22,10 @@ HttpServer::~HttpServer() {
 
 void HttpServer::route(const std::string& method, const std::string& path, HandlerFunc handler) {
     routes_[method + " " + path] = handler;
+}
+
+void HttpServer::websocket_route(const std::string& path_prefix, WebSocketHandlerFunc handler) {
+    ws_routes_[path_prefix] = handler;
 }
 
 void HttpServer::start() {
@@ -150,11 +155,33 @@ void HttpServer::handle_client(int client_fd, const std::string& client_ip) {
     }
     
     if (request_data.empty()) return;
-    
+
     // Parse request
     HttpRequest req = parse_request(request_data);
     req.client_ip = client_ip;
-    
+
+    // Check if this is a WebSocket upgrade request
+    if (WebSocketManager::is_websocket_upgrade(req.headers)) {
+        // Find matching WebSocket handler
+        for (const auto& [path_prefix, handler] : ws_routes_) {
+            if (req.path.find(path_prefix) == 0) {
+                // Extract path parameter (e.g., job_id from /stream/job_123)
+                std::string path_param = req.path.substr(path_prefix.length());
+
+                // Perform WebSocket handshake
+                auto sec_key_it = req.headers.find("Sec-WebSocket-Key");
+                if (sec_key_it != req.headers.end()) {
+                    std::string handshake = WebSocketManager::create_handshake_response(sec_key_it->second);
+                    write(client_fd, handshake.c_str(), handshake.length());
+
+                    // Call WebSocket handler (this will block for the duration of the connection)
+                    handler(client_fd, path_param);
+                }
+                return;
+            }
+        }
+    }
+
     // Find handler
     std::string route_key = req.method + " " + req.path;
     HttpResponse resp;
@@ -170,27 +197,34 @@ void HttpServer::handle_client(int client_fd, const std::string& client_ip) {
         }
     } else {
         // Check for prefix matches (for /download/{job_id}/{file} style routes)
+        // Find the longest matching prefix to avoid "/" matching everything
         bool found = false;
+        size_t best_match_len = 0;
+        HandlerFunc best_handler;
+
         for (const auto& [pattern, handler] : routes_) {
             size_t space_pos = pattern.find(' ');
             std::string method = pattern.substr(0, space_pos);
             std::string path_pattern = pattern.substr(space_pos + 1);
-            
+
             if (method == req.method && req.path.find(path_pattern) == 0) {
-                try {
-                    resp = handler(req);
+                // Use longest matching pattern
+                if (path_pattern.length() > best_match_len) {
+                    best_match_len = path_pattern.length();
+                    best_handler = handler;
                     found = true;
-                    break;
-                } catch (const std::exception& e) {
-                    resp.status_code = 500;
-                    resp.body = "{\"error\":\"" + std::string(e.what()) + "\"}";
-                    found = true;
-                    break;
                 }
             }
         }
-        
-        if (!found) {
+
+        if (found) {
+            try {
+                resp = best_handler(req);
+            } catch (const std::exception& e) {
+                resp.status_code = 500;
+                resp.body = "{\"error\":\"" + std::string(e.what()) + "\"}";
+            }
+        } else {
             resp.status_code = 404;
             resp.body = "{\"error\":\"Not found\"}";
         }

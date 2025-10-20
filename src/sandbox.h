@@ -37,7 +37,8 @@ struct SandboxConfig {
     std::chrono::seconds timeout = std::chrono::seconds(DEFAULT_TIMEOUT_SECONDS);
     bool allow_network = false;                      // Airgapped by default
     std::string interpreter = "python3";              // Default interpreter
-    
+    std::string pythonpath;                           // Additional PYTHONPATH for environments
+
     // GPU configuration
     bool gpu_enabled = false;                        // GPU access disabled by default
     int gpu_device_id = 0;                          // Which GPU to use (0-based)

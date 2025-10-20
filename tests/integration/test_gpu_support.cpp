@@ -149,7 +149,7 @@ try:
         try:
             # Allocate 1.5GB
             x = torch.zeros(1536 * 1024 * 1024 // 4, device=device, dtype=torch.float32)
-            print("Large allocation succeeded (may be within limit)")
+            print('Large allocation succeeded (may be within limit)')
         except RuntimeError as e:
             print(f"Allocation failed as expected: {e}")
             

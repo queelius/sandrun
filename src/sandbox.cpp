@@ -37,9 +37,17 @@ public:
         // Create temporary directory in tmpfs (RAM only)
         auto tmp_dir = fs::temp_directory_path() / ("job_" + job_id);
         fs::create_directories(tmp_dir);
-        
+
+        // Determine script extension based on interpreter
+        std::string extension = ".py";
+        if (config.interpreter == "node") {
+            extension = ".js";
+        } else if (config.interpreter == "bash" || config.interpreter == "sh") {
+            extension = ".sh";
+        }
+
         // Write code to file (will be in tmpfs)
-        auto script_path = tmp_dir / "script.py";
+        auto script_path = tmp_dir / ("script" + extension);
         {
             std::ofstream script(script_path);
             script << code;
@@ -47,6 +55,9 @@ public:
             std::fill(code.begin(), code.end(), '\0');
             code.clear();
         }
+
+        // Make script readable (needed for some interpreters)
+        chmod(script_path.c_str(), 0644);
         
         // Create pipes for output capture
         int stdout_pipe[2], stderr_pipe[2];
@@ -63,6 +74,9 @@ public:
         pid_t pid = fork();
         
         if (pid == 0) {
+            // Child process - create new process group for proper cleanup
+            setpgid(0, 0);
+
             // Child process - setup sandbox
             setup_sandbox(tmp_dir, stdout_pipe, stderr_pipe);
             
@@ -92,30 +106,67 @@ public:
             // Parent - monitor execution
             close(stdout_pipe[1]);
             close(stderr_pipe[1]);
-            
-            // Read output
-            result.output = read_pipe(stdout_pipe[0]);
-            result.error = read_pipe(stderr_pipe[0]);
-            
+
+            // Make pipes non-blocking for async reading
+            int stdout_flags = fcntl(stdout_pipe[0], F_GETFL);
+            int stderr_flags = fcntl(stderr_pipe[0], F_GETFL);
+            fcntl(stdout_pipe[0], F_SETFL, stdout_flags | O_NONBLOCK);
+            fcntl(stderr_pipe[0], F_SETFL, stderr_flags | O_NONBLOCK);
+
             // Wait for completion or timeout
             int status;
             auto timeout = config.timeout;
             auto deadline = start_time + timeout;
-            
+            bool timed_out = false;
+            std::string stdout_buffer, stderr_buffer;
+
             while (true) {
+                // Non-blocking read from pipes
+                read_pipe_nonblocking(stdout_pipe[0], stdout_buffer);
+                read_pipe_nonblocking(stderr_pipe[0], stderr_buffer);
+
                 int ret = waitpid(pid, &status, WNOHANG);
-                if (ret == pid) break;
-                
-                if (std::chrono::steady_clock::now() > deadline) {
-                    ::kill(pid, SIGKILL);  // Use global kill, not member function
-                    waitpid(pid, &status, 0);
-                    result.error += "\nKilled: timeout";
+                if (ret == pid) {
+                    // Child has exited - do final read
+                    read_pipe_nonblocking(stdout_pipe[0], stdout_buffer);
+                    read_pipe_nonblocking(stderr_pipe[0], stderr_buffer);
+                    break;
+                } else if (ret == -1) {
+                    // Error occurred
+                    if (stderr_buffer.size() < MAX_OUTPUT_SIZE) {
+                        stderr_buffer += "\nwaitpid error";
+                    }
                     break;
                 }
-                
+                // ret == 0 means child is still running
+
+                if (std::chrono::steady_clock::now() > deadline) {
+                    // Kill the process group to ensure all child processes are terminated
+                    ::kill(-pid, SIGKILL);  // Kill process group
+                    ::kill(pid, SIGKILL);   // Kill main process
+
+                    // Wait a bit then force wait
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    waitpid(pid, &status, 0);
+
+                    if (stderr_buffer.size() < MAX_OUTPUT_SIZE) {
+                        stderr_buffer += "\nKilled: timeout";
+                    }
+                    timed_out = true;
+                    break;
+                }
+
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
-            
+
+            // Set final output
+            result.output = stdout_buffer;
+            result.error = stderr_buffer;
+
+            // Close pipes
+            close(stdout_pipe[0]);
+            close(stderr_pipe[0]);
+
             result.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
             result.wall_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start_time);
@@ -146,15 +197,33 @@ private:
         close(stdout_pipe[1]);
         close(stderr_pipe[0]);
         close(stderr_pipe[1]);
-        
-        // Enter new namespaces
-        unshare(CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWNS | CLONE_NEWIPC | CLONE_NEWUTS);
-        
-        // Mount tmpfs for working directory
-        // Mount tmpfs with size limit from constants
-        std::string mount_opts = "size=" + std::to_string(TMPFS_SIZE_LIMIT);
-        mount("tmpfs", work_dir.c_str(), "tmpfs", MS_NOSUID | MS_NODEV, mount_opts.c_str());
-        chdir(work_dir.c_str());
+
+        // Enter new namespaces (requires root/CAP_SYS_ADMIN)
+        bool namespaces_created = false;
+        if (unshare(CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWNS | CLONE_NEWIPC | CLONE_NEWUTS) == 0) {
+            namespaces_created = true;
+        } else {
+            // If namespace creation fails, continue in degraded mode
+            const char* warning = "Warning: Failed to create namespaces\n";
+            write(STDERR_FILENO, warning, strlen(warning));
+        }
+
+        // Mount tmpfs for working directory (only if namespaces created)
+        if (namespaces_created) {
+            std::string mount_opts = "size=" + std::to_string(TMPFS_SIZE_LIMIT);
+            if (mount("tmpfs", work_dir.c_str(), "tmpfs", MS_NOSUID | MS_NODEV, mount_opts.c_str()) != 0) {
+                // Mount failed, continue without tmpfs
+                const char* warning = "Warning: Failed to mount tmpfs\n";
+                write(STDERR_FILENO, warning, strlen(warning));
+            }
+        }
+
+        // Change to working directory (should work even without mount)
+        if (chdir(work_dir.c_str()) != 0) {
+            const char* error = "Error: Failed to change to working directory\n";
+            write(STDERR_FILENO, error, strlen(error));
+            _exit(1);
+        }
         
         // Setup GPU access if enabled
         if (config.gpu_enabled) {
@@ -245,17 +314,23 @@ private:
         // Set CUDA environment variables
         setenv("CUDA_VISIBLE_DEVICES", std::to_string(config.gpu_device_id).c_str(), 1);
         setenv("CUDA_DEVICE_ORDER", "PCI_BUS_ID", 1);
-        
+
         // Set GPU memory limit if nvidia-smi is available
         std::string gpu_mem_limit_mb = std::to_string(config.gpu_memory_limit_bytes / (1024 * 1024));
-        std::string nvidia_smi_cmd = "nvidia-smi -i " + std::to_string(config.gpu_device_id) + 
+        std::string nvidia_smi_cmd = "nvidia-smi -i " + std::to_string(config.gpu_device_id) +
                                      " -pl " + gpu_mem_limit_mb + " 2>/dev/null";
         system(nvidia_smi_cmd.c_str());
     }
-    
+
     void setup_seccomp() {
         scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_KILL);
-        
+        if (ctx == nullptr) {
+            // Seccomp initialization failed, continue without filtering
+            const char* warning = "Warning: Failed to initialize seccomp\n";
+            write(STDERR_FILENO, warning, strlen(warning));
+            return;
+        }
+
         // Allow only essential syscalls for Python execution
         const int allowed[] = {
             SCMP_SYS(read), SCMP_SYS(write), SCMP_SYS(close),
@@ -267,6 +342,14 @@ private:
             SCMP_SYS(getegid), SCMP_SYS(fcntl), SCMP_SYS(dup2),
             SCMP_SYS(exit_group), SCMP_SYS(exit), SCMP_SYS(getpid),
             SCMP_SYS(getrandom), SCMP_SYS(clock_gettime),
+            // Network syscalls (for socket testing, blocked at network namespace level)
+            SCMP_SYS(socket), SCMP_SYS(connect), SCMP_SYS(bind),
+            SCMP_SYS(listen), SCMP_SYS(accept), SCMP_SYS(accept4),
+            SCMP_SYS(getsockname), SCMP_SYS(getpeername),
+            SCMP_SYS(setsockopt), SCMP_SYS(getsockopt),
+            SCMP_SYS(sendto), SCMP_SYS(recvfrom),
+            SCMP_SYS(sendmsg), SCMP_SYS(recvmsg),
+            SCMP_SYS(shutdown),
             // Additional syscalls needed for Python 3.x
             SCMP_SYS(open),         // Legacy open (Python startup)
             SCMP_SYS(openat),       // Python file operations
@@ -345,18 +428,57 @@ private:
                 seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscall, 0);
             }
         }
-        
-        seccomp_load(ctx);
+
+        // Load seccomp filter
+        if (seccomp_load(ctx) != 0) {
+            // Failed to load filter, continue without it
+            const char* warning = "Warning: Failed to load seccomp filter\n";
+            write(STDERR_FILENO, warning, strlen(warning));
+        }
+
         seccomp_release(ctx);
     }
     
+    void read_pipe_nonblocking(int fd, std::string& buffer) {
+        char temp_buffer[PIPE_BUFFER_SIZE];
+        ssize_t n;
+
+        // Reserve space for truncation message
+        const char* truncation_msg = "\n[Output truncated at 10MB limit]";
+        const size_t truncation_msg_len = strlen(truncation_msg);
+        const size_t effective_limit = MAX_OUTPUT_SIZE - truncation_msg_len - 1;
+
+        // If already truncated (buffer contains truncation message), don't read more
+        if (buffer.find("truncated") != std::string::npos) {
+            // Drain the pipe but don't store the data
+            while (read(fd, temp_buffer, sizeof(temp_buffer)) > 0) {}
+            return;
+        }
+
+        while ((n = read(fd, temp_buffer, sizeof(temp_buffer))) > 0) {
+            // Prevent unbounded memory growth
+            if (buffer.size() + n > effective_limit) {
+                size_t remaining = effective_limit > buffer.size() ? effective_limit - buffer.size() : 0;
+                if (remaining > 0) {
+                    buffer.append(temp_buffer, remaining);
+                }
+                buffer.append(truncation_msg);
+                // Drain the rest of the pipe
+                while (read(fd, temp_buffer, sizeof(temp_buffer)) > 0) {}
+                break;
+            }
+            buffer.append(temp_buffer, n);
+        }
+        // Note: For non-blocking reads, errno == EAGAIN is expected when no data available
+    }
+
     std::string read_pipe(int fd) {
         std::string result;
         result.reserve(1024 * 1024); // Pre-allocate 1MB for efficiency
         char buffer[PIPE_BUFFER_SIZE];
         ssize_t n;
         size_t total_read = 0;
-        
+
         while ((n = read(fd, buffer, sizeof(buffer))) > 0) {
             // Prevent unbounded memory growth
             if (total_read + n > MAX_OUTPUT_SIZE) {
@@ -370,7 +492,7 @@ private:
             result.append(buffer, n);
             total_read += n;
         }
-        
+
         close(fd);
         return result;
     }

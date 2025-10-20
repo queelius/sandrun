@@ -1,0 +1,437 @@
+#include <gtest/gtest.h>
+#include "http_server.h"
+#include <thread>
+#include <chrono>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <cstring>
+
+namespace sandrun {
+namespace {
+
+class HttpServerTest : public ::testing::Test {
+protected:
+    std::unique_ptr<HttpServer> server;
+    std::thread server_thread;
+    int test_port;
+
+    void SetUp() override {
+        // Use a random high port for testing
+        test_port = 20000 + (std::rand() % 10000);
+    }
+
+    void TearDown() override {
+        if (server) {
+            server->stop();
+        }
+        if (server_thread.joinable()) {
+            server_thread.join();
+        }
+    }
+
+    void startServer() {
+        server = std::make_unique<HttpServer>(test_port);
+        server_thread = std::thread([this]() {
+            server->start();
+        });
+        // Give server time to start
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    std::string sendHttpRequest(const std::string& request) {
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock < 0) return "Socket creation failed";
+
+        struct sockaddr_in server_addr;
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(test_port);
+        server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+        if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+            close(sock);
+            return "Connection failed";
+        }
+
+        send(sock, request.c_str(), request.length(), 0);
+
+        char buffer[4096] = {0};
+        int bytes_read = recv(sock, buffer, sizeof(buffer) - 1, 0);
+
+        close(sock);
+
+        if (bytes_read > 0) {
+            return std::string(buffer, bytes_read);
+        }
+        return "No response";
+    }
+};
+
+TEST_F(HttpServerTest, HttpRequestStructure) {
+    HttpRequest request;
+    request.method = "GET";
+    request.path = "/test";
+    request.headers["Host"] = "localhost";
+    request.headers["User-Agent"] = "test";
+    request.body = "test body";
+    request.client_ip = "127.0.0.1";
+
+    EXPECT_EQ(request.method, "GET");
+    EXPECT_EQ(request.path, "/test");
+    EXPECT_EQ(request.headers["Host"], "localhost");
+    EXPECT_EQ(request.headers["User-Agent"], "test");
+    EXPECT_EQ(request.body, "test body");
+    EXPECT_EQ(request.client_ip, "127.0.0.1");
+}
+
+TEST_F(HttpServerTest, HttpResponseStructure) {
+    HttpResponse response;
+
+    // Test default values
+    EXPECT_EQ(response.status_code, 200);
+    EXPECT_EQ(response.headers["Content-Type"], "application/json");
+    EXPECT_EQ(response.headers["Access-Control-Allow-Origin"], "*");
+    EXPECT_EQ(response.body, "");
+
+    // Test setting values
+    response.status_code = 404;
+    response.body = "Not Found";
+    response.headers["X-Custom"] = "value";
+
+    EXPECT_EQ(response.status_code, 404);
+    EXPECT_EQ(response.body, "Not Found");
+    EXPECT_EQ(response.headers["X-Custom"], "value");
+}
+
+TEST_F(HttpServerTest, ServerInitialization) {
+    HttpServer test_server(test_port);
+
+    // Server should be created but not running
+    // We can't test much without starting it, but at least construction works
+    EXPECT_NO_THROW({
+        HttpServer another_server(test_port + 1);
+    });
+}
+
+TEST_F(HttpServerTest, RouteRegistration) {
+    startServer();
+
+    bool handler_called = false;
+    server->route("GET", "/test", [&handler_called](const HttpRequest& req) {
+        handler_called = true;
+        HttpResponse resp;
+        resp.body = "Test response";
+        return resp;
+    });
+
+    // Send a request to test the route
+    std::string request = "GET /test HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string response = sendHttpRequest(request);
+
+    EXPECT_TRUE(response.find("200 OK") != std::string::npos ||
+                response.find("Test response") != std::string::npos);
+}
+
+TEST_F(HttpServerTest, MultipleRoutes) {
+    startServer();
+
+    server->route("GET", "/route1", [](const HttpRequest& req) {
+        HttpResponse resp;
+        resp.body = "Route 1";
+        return resp;
+    });
+
+    server->route("GET", "/route2", [](const HttpRequest& req) {
+        HttpResponse resp;
+        resp.body = "Route 2";
+        return resp;
+    });
+
+    server->route("POST", "/route3", [](const HttpRequest& req) {
+        HttpResponse resp;
+        resp.body = "Route 3 POST";
+        return resp;
+    });
+
+    // Test GET /route1
+    std::string request1 = "GET /route1 HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string response1 = sendHttpRequest(request1);
+    EXPECT_TRUE(response1.find("Route 1") != std::string::npos ||
+                response1.find("200") != std::string::npos);
+
+    // Test GET /route2
+    std::string request2 = "GET /route2 HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string response2 = sendHttpRequest(request2);
+    EXPECT_TRUE(response2.find("Route 2") != std::string::npos ||
+                response2.find("200") != std::string::npos);
+}
+
+TEST_F(HttpServerTest, PostRequestWithBody) {
+    startServer();
+
+    std::string received_body;
+    server->route("POST", "/echo", [&received_body](const HttpRequest& req) {
+        received_body = req.body;
+        HttpResponse resp;
+        resp.body = req.body;
+        return resp;
+    });
+
+    std::string body = "{\"test\": \"data\"}";
+    std::string request = "POST /echo HTTP/1.1\r\n"
+                         "Host: localhost\r\n"
+                         "Content-Type: application/json\r\n"
+                         "Content-Length: " + std::to_string(body.length()) + "\r\n"
+                         "\r\n" + body;
+
+    std::string response = sendHttpRequest(request);
+
+    // Response should contain the echoed body
+    EXPECT_TRUE(response.find(body) != std::string::npos ||
+                response.find("200") != std::string::npos);
+}
+
+TEST_F(HttpServerTest, CustomStatusCodes) {
+    startServer();
+
+    server->route("GET", "/notfound", [](const HttpRequest& req) {
+        HttpResponse resp;
+        resp.status_code = 404;
+        resp.body = "Not Found";
+        return resp;
+    });
+
+    server->route("GET", "/error", [](const HttpRequest& req) {
+        HttpResponse resp;
+        resp.status_code = 500;
+        resp.body = "Internal Server Error";
+        return resp;
+    });
+
+    // Test 404 response
+    std::string request1 = "GET /notfound HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string response1 = sendHttpRequest(request1);
+    EXPECT_TRUE(response1.find("404") != std::string::npos ||
+                response1.find("Not Found") != std::string::npos);
+
+    // Test 500 response
+    std::string request2 = "GET /error HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string response2 = sendHttpRequest(request2);
+    EXPECT_TRUE(response2.find("500") != std::string::npos ||
+                response2.find("Internal Server Error") != std::string::npos);
+}
+
+TEST_F(HttpServerTest, RequestHeaders) {
+    startServer();
+
+    std::map<std::string, std::string> captured_headers;
+    server->route("GET", "/headers", [&captured_headers](const HttpRequest& req) {
+        captured_headers = req.headers;
+        HttpResponse resp;
+        resp.body = "Headers received";
+        return resp;
+    });
+
+    std::string request = "GET /headers HTTP/1.1\r\n"
+                         "Host: test.example.com\r\n"
+                         "User-Agent: TestAgent/1.0\r\n"
+                         "X-Custom-Header: CustomValue\r\n"
+                         "Accept: application/json\r\n"
+                         "\r\n";
+
+    std::string response = sendHttpRequest(request);
+
+    // Give some time for the handler to execute
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Check if headers were captured (may not work due to async handling)
+    EXPECT_TRUE(response.find("200") != std::string::npos ||
+                response.find("Headers received") != std::string::npos);
+}
+
+TEST_F(HttpServerTest, ResponseHeaders) {
+    startServer();
+
+    server->route("GET", "/custom-headers", [](const HttpRequest& req) {
+        HttpResponse resp;
+        resp.headers["X-Test-Header"] = "TestValue";
+        resp.headers["X-Another"] = "AnotherValue";
+        resp.body = "Custom headers";
+        return resp;
+    });
+
+    std::string request = "GET /custom-headers HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string response = sendHttpRequest(request);
+
+    // Check for custom headers in response
+    EXPECT_TRUE(response.find("X-Test-Header") != std::string::npos ||
+                response.find("TestValue") != std::string::npos ||
+                response.find("Custom headers") != std::string::npos);
+}
+
+TEST_F(HttpServerTest, InvalidRequest) {
+    startServer();
+
+    // Send malformed request
+    std::string request = "INVALID REQUEST\r\n\r\n";
+    std::string response = sendHttpRequest(request);
+
+    // Server should handle invalid request gracefully
+    // It might return a 400 Bad Request or close the connection
+    EXPECT_TRUE(response.find("400") != std::string::npos ||
+                response == "No response" ||
+                response.find("Bad Request") != std::string::npos);
+}
+
+TEST_F(HttpServerTest, EmptyRequest) {
+    startServer();
+
+    // Send empty request
+    std::string request = "";
+    std::string response = sendHttpRequest(request);
+
+    // Server should handle empty request gracefully
+    EXPECT_TRUE(response == "No response" ||
+                response.find("400") != std::string::npos);
+}
+
+TEST_F(HttpServerTest, LargeRequestBody) {
+    startServer();
+
+    server->route("POST", "/large", [](const HttpRequest& req) {
+        HttpResponse resp;
+        resp.body = "Received " + std::to_string(req.body.length()) + " bytes";
+        return resp;
+    });
+
+    // Create a large body (1MB)
+    std::string large_body(1024 * 1024, 'X');
+    std::string request = "POST /large HTTP/1.1\r\n"
+                         "Host: localhost\r\n"
+                         "Content-Length: " + std::to_string(large_body.length()) + "\r\n"
+                         "\r\n" + large_body;
+
+    std::string response = sendHttpRequest(request);
+
+    // Check if server handled large request
+    EXPECT_TRUE(response.find("Received") != std::string::npos ||
+                response.find("200") != std::string::npos ||
+                response == "No response"); // May timeout or reject
+}
+
+TEST_F(HttpServerTest, ConcurrentRequests) {
+    startServer();
+
+    std::atomic<int> request_count{0};
+    server->route("GET", "/concurrent", [&request_count](const HttpRequest& req) {
+        request_count++;
+        HttpResponse resp;
+        resp.body = "Request " + std::to_string(request_count.load());
+        return resp;
+    });
+
+    // Send multiple concurrent requests
+    std::vector<std::thread> threads;
+    std::atomic<int> success_count{0};
+
+    for (int i = 0; i < 10; ++i) {
+        threads.emplace_back([this, &success_count]() {
+            std::string request = "GET /concurrent HTTP/1.1\r\nHost: localhost\r\n\r\n";
+            std::string response = sendHttpRequest(request);
+            if (response.find("Request") != std::string::npos ||
+                response.find("200") != std::string::npos) {
+                success_count++;
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // At least some requests should succeed
+    EXPECT_GT(success_count.load(), 0);
+}
+
+TEST_F(HttpServerTest, MethodNotAllowed) {
+    startServer();
+
+    server->route("GET", "/only-get", [](const HttpRequest& req) {
+        HttpResponse resp;
+        resp.body = "GET only";
+        return resp;
+    });
+
+    // Try POST on GET-only route
+    std::string request = "POST /only-get HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string response = sendHttpRequest(request);
+
+    // Should return 404 or 405
+    EXPECT_TRUE(response.find("404") != std::string::npos ||
+                response.find("405") != std::string::npos ||
+                response.find("Not Found") != std::string::npos ||
+                response.find("Method Not Allowed") != std::string::npos);
+}
+
+TEST_F(HttpServerTest, RouteWithParameters) {
+    startServer();
+
+    server->route("GET", "/user", [](const HttpRequest& req) {
+        HttpResponse resp;
+        // In a real implementation, we'd parse query parameters
+        resp.body = "User endpoint";
+        return resp;
+    });
+
+    std::string request = "GET /user?id=123&name=test HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string response = sendHttpRequest(request);
+
+    EXPECT_TRUE(response.find("User endpoint") != std::string::npos ||
+                response.find("200") != std::string::npos);
+}
+
+TEST_F(HttpServerTest, StopAndRestart) {
+    // Start server
+    startServer();
+
+    server->route("GET", "/test", [](const HttpRequest& req) {
+        HttpResponse resp;
+        resp.body = "Test";
+        return resp;
+    });
+
+    // Send first request
+    std::string request = "GET /test HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string response1 = sendHttpRequest(request);
+    EXPECT_TRUE(response1.find("Test") != std::string::npos ||
+                response1.find("200") != std::string::npos);
+
+    // Stop server
+    server->stop();
+    if (server_thread.joinable()) {
+        server_thread.join();
+    }
+
+    // Wait a bit
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Try to send request to stopped server
+    std::string response2 = sendHttpRequest(request);
+    EXPECT_EQ(response2, "Connection failed");
+
+    // Restart server
+    startServer();
+    server->route("GET", "/test", [](const HttpRequest& req) {
+        HttpResponse resp;
+        resp.body = "Test Restarted";
+        return resp;
+    });
+
+    // Send request again
+    std::string response3 = sendHttpRequest(request);
+    EXPECT_TRUE(response3.find("Test Restarted") != std::string::npos ||
+                response3.find("200") != std::string::npos);
+}
+
+} // namespace
+} // namespace sandrun
