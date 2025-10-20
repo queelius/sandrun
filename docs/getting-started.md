@@ -505,6 +505,70 @@ curl: (7) Failed to connect to localhost port 8443: Connection refused
    journalctl -u sandrun -f
    ```
 
+## Using Pre-built Environments
+
+Sandrun includes pre-built Python environments with common packages for faster execution.
+
+### Example: ML Job with ml-basic Environment
+
+```bash
+# Create training script
+cat > train.py <<'EOF'
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+
+print("Packages loaded successfully!")
+print(f"NumPy version: {np.__version__}")
+print(f"Pandas version: {pd.__version__}")
+
+# Create sample data
+X = np.random.rand(100, 5)
+y = np.random.randint(0, 2, 100)
+
+# Train model
+model = RandomForestClassifier()
+model.fit(X, y)
+
+print(f"Model trained! Accuracy: {model.score(X, y):.2f}")
+EOF
+
+# Create manifest with environment
+cat > job.json <<'EOF'
+{
+  "entrypoint": "train.py",
+  "interpreter": "python3",
+  "environment": "ml-basic"
+}
+EOF
+
+# Package and submit
+tar czf ml-job.tar.gz train.py
+curl -X POST http://localhost:8443/submit \
+  -F "files=@ml-job.tar.gz" \
+  -F "manifest=$(cat job.json)"
+```
+
+**Benefits:**
+- ✅ No pip install time (packages pre-installed)
+- ✅ Reproducible versions
+- ✅ Cached across jobs for efficiency
+
+### Available Environments
+
+| Environment | Packages | Use Case |
+|-------------|----------|----------|
+| `ml-basic` | NumPy, Pandas, Scikit-learn, Matplotlib | Traditional ML |
+| `vision` | PyTorch, Torchvision, OpenCV, Pillow | Computer vision |
+| `nlp` | PyTorch, Transformers, Tokenizers | NLP/language models |
+| `data-science` | NumPy, Pandas, Matplotlib, Seaborn, Jupyter | Data analysis |
+| `scientific` | NumPy, SciPy, SymPy, Matplotlib | Scientific computing |
+
+**Check available environments:**
+```bash
+curl http://localhost:8443/environments
+```
+
 ## Next Steps
 
 - [API Reference](api-reference.md) - Complete API documentation

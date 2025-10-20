@@ -9,7 +9,8 @@ Each job submitted to Sandrun can include a manifest file (`job.json`) that spec
 ```json
 {
   "entrypoint": "main.py",
-  "interpreter": "python3", 
+  "interpreter": "python3",
+  "environment": "ml-basic",
   "args": ["--input", "data.csv"],
   "env": {
     "PYTHONPATH": "./lib"
@@ -34,10 +35,35 @@ Each job submitted to Sandrun can include a manifest file (`job.json`) that spec
 - **Examples**: `"main.py"`, `"run.sh"`, `"analyze.R"`
 
 ### `interpreter` (optional)
-- **Type**: string  
+- **Type**: string
 - **Default**: Auto-detected from file extension
 - **Options**: `"python3"`, `"node"`, `"bash"`, `"ruby"`, `"Rscript"`
 - **Description**: The interpreter to use for the entrypoint
+
+### `environment` (optional)
+- **Type**: string
+- **Default**: None (uses default Python environment)
+- **Options**: `"ml-basic"`, `"vision"`, `"nlp"`, `"data-science"`, `"scientific"`
+- **Description**: Pre-built Python environment template with common packages
+- **Benefits**:
+  - **Faster execution**: Packages pre-installed, no pip install time
+  - **Reproducibility**: Known package versions
+  - **Disk efficiency**: Environments cached and shared across jobs
+- **Available Templates**:
+  - `ml-basic`: NumPy, Pandas, Scikit-learn, Matplotlib
+  - `vision`: PyTorch, Torchvision, OpenCV, Pillow
+  - `nlp`: PyTorch, Transformers, Tokenizers, SentencePiece
+  - `data-science`: NumPy, Pandas, Matplotlib, Seaborn, Jupyter, IPython
+  - `scientific`: NumPy, SciPy, SymPy, Matplotlib
+- **Example**:
+  ```json
+  {
+    "entrypoint": "train.py",
+    "interpreter": "python3",
+    "environment": "ml-basic"
+  }
+  ```
+- **Note**: If specified, `requirements.txt` will still be installed on top of the template
 
 ### `args` (optional)
 - **Type**: array of strings

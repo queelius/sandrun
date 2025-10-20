@@ -55,6 +55,7 @@ add_executable(integration_tests
     integration/test_gpu_support.cpp
     integration/test_job_verification.cpp
     integration/test_worker_signing.cpp
+    integration/test_environment_integration.cpp
     ${CMAKE_SOURCE_DIR}/src/sandbox.cpp
     ${CMAKE_SOURCE_DIR}/src/http_server.cpp
     ${CMAKE_SOURCE_DIR}/src/multipart.cpp
