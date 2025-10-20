@@ -1,12 +1,62 @@
 # API Reference
 
-Complete REST API documentation for Sandrun.
+Complete REST API documentation for Sandrun's HTTP interface.
 
-## Base URL
+## Overview
+
+Sandrun provides a simple REST API for anonymous code execution. All endpoints return JSON responses (except for file downloads and logs).
+
+### Base URL
 
 ```
 http://localhost:8443
 ```
+
+!!! tip "Protocol Support"
+    - Production deployments should use HTTPS with valid certificates
+    - CORS is enabled by default for web frontend support
+    - WebSocket support available for log streaming
+
+### Authentication
+
+**None required!** Sandrun is anonymous by design. Rate limiting is based on client IP address only.
+
+### Response Format
+
+All successful API responses follow this structure:
+
+```json
+{
+  "job_id": "unique-identifier",
+  "status": "queued|running|completed|failed",
+  "...": "additional fields"
+}
+```
+
+Error responses:
+
+```json
+{
+  "error": "Human-readable error message",
+  "details": "Additional context (optional)",
+  "retry_after": 30  // For rate limiting (optional)
+}
+```
+
+## Quick Reference
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/` | Server info and status |
+| POST | `/submit` | Submit new job |
+| GET | `/status/{job_id}` | Get job status and metadata |
+| GET | `/logs/{job_id}` | Get job stdout/stderr |
+| WS | `/logs/{job_id}/stream` | Stream logs in real-time |
+| GET | `/outputs/{job_id}` | List output files |
+| GET | `/download/{job_id}/{path}` | Download output file |
+| GET | `/stats` | Check quota and system stats |
+| GET | `/environments` | List available environments |
+| GET | `/health` | Health check (for pools) |
 
 ## Endpoints
 

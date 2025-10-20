@@ -43,7 +43,9 @@ theme:
     repo: fontawesome/brands/github
 
 plugins:
-  - search
+  - search:
+      lang: en
+      separator: '[\s\-\.]+'
   - minify:
       minify_html: true
 
@@ -66,8 +68,14 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
-  - API Reference: api-reference.md
-  - Job Manifest: job-manifest.md
+
+  - User Guide:
+    - API Reference: api-reference.md
+    - Job Manifest: job-manifest.md
+    - Troubleshooting: troubleshooting.md
+    - FAQ: faq.md
+    - Security: security.md
+
   - Architecture: architecture.md
 
   - Integrations:
@@ -83,7 +91,15 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/yourusername/sandrun
+      name: Sandrun on GitHub
     - icon: fontawesome/brands/twitter
       link: https://twitter.com/yourusername
+      name: Follow us on Twitter
 
-copyright: Copyright &copy; 2025 Sandrun Team
+  analytics:
+    provider: google
+    property: G-XXXXXXXXXX  # Replace with your Google Analytics ID
+
+  generator: false  # Remove "Made with Material for MkDocs" footer
+
+copyright: Copyright &copy; 2025 Sandrun Team | <a href="#privacy">Privacy Policy</a> | <a href="#terms">Terms of Service</a>

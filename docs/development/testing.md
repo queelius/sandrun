@@ -401,4 +401,4 @@ TEST(Example, DoSomething) {
 
 - [Building Guide](building.md)
 - [Architecture](../architecture.md)
-- [Test Strategy Review](../../TEST_STRATEGY_REVIEW.md)
+- [Contributing](https://github.com/yourusername/sandrun/blob/master/CONTRIBUTING.md)

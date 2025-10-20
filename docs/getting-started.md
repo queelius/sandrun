@@ -1,28 +1,80 @@
 # Getting Started
 
-This guide will help you set up and start using Sandrun.
+This guide will walk you through installing Sandrun, running your first job, and understanding the core workflow.
+
+!!! info "Estimated Time"
+    5-10 minutes to install and run your first job
 
 ## Prerequisites
 
-- **OS**: Linux (Ubuntu 20.04+ or Debian 11+ recommended)
-- **Root Access**: Required for namespace creation
-- **Dependencies**: Build tools and libraries
+Before installing Sandrun, ensure your system meets these requirements:
+
+### System Requirements
+
+| Requirement | Specification |
+|-------------|---------------|
+| **Operating System** | Linux (Ubuntu 20.04+, Debian 11+, or equivalent) |
+| **Kernel Version** | 4.6+ (for namespace support) |
+| **RAM** | 2GB minimum (4GB+ recommended) |
+| **Disk Space** | 500MB for build artifacts |
+| **Root Access** | Required for namespace creation |
+
+### Check Your System
+
+```bash
+# Verify kernel version (should be 4.6+)
+uname -r
+
+# Check if namespaces are supported
+ls /proc/self/ns/
+
+# Verify seccomp support
+cat /proc/sys/kernel/seccomp  # Should output: 2
+```
+
+!!! warning "Root Permissions Required"
+    Sandrun requires root privileges to create Linux namespaces. You'll need to run it with `sudo` or grant the CAP_SYS_ADMIN capability.
 
 ## Installation
 
 ### 1. Install Dependencies
 
-```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install -y \
-  build-essential \
-  cmake \
-  libseccomp-dev \
-  libcap-dev \
-  libssl-dev \
-  pkg-config
-```
+=== "Ubuntu/Debian"
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y \
+      build-essential \
+      cmake \
+      libseccomp-dev \
+      libcap-dev \
+      libssl-dev \
+      pkg-config \
+      git
+    ```
+
+=== "Fedora/RHEL"
+    ```bash
+    sudo dnf install -y \
+      gcc-c++ \
+      cmake \
+      libseccomp-devel \
+      libcap-devel \
+      openssl-devel \
+      pkgconfig \
+      git
+    ```
+
+=== "Arch Linux"
+    ```bash
+    sudo pacman -S \
+      base-devel \
+      cmake \
+      libseccomp \
+      libcap \
+      openssl \
+      pkgconf \
+      git
+    ```
 
 ### 2. Clone and Build
 
@@ -31,24 +83,49 @@ sudo apt-get install -y \
 git clone https://github.com/yourusername/sandrun.git
 cd sandrun
 
-# Build
-cmake -B build
-cmake --build build
+# Configure build
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+# Build (use -j for parallel compilation)
+cmake --build build -j$(nproc)
 
 # Verify build
 ./build/sandrun --help
 ```
+
+!!! success "Build Output"
+    If successful, you should see:
+    ```
+    Usage: sandrun [options]
+    Options:
+      --port PORT          Server port (default: 8443)
+      --worker-key FILE    Worker private key for signing
+      --generate-key FILE  Generate new worker keypair
+      --help              Show this help message
+    ```
 
 ### 3. Run Server
 
 ```bash
 # Start server (requires sudo for namespace creation)
 sudo ./build/sandrun --port 8443
-
-# Server output:
-# Worker ID: <if using --worker-key>
-# Server listening on port 8443
 ```
+
+**Expected Output:**
+```
+[INFO] Sandrun v1.0.0 starting...
+[INFO] Initializing sandbox environment
+[INFO] Loading environment templates
+[INFO] Server listening on http://0.0.0.0:8443
+[INFO] Press Ctrl+C to stop
+```
+
+!!! tip "Running Without Sudo"
+    For production deployments, you can grant specific capabilities instead of full root:
+    ```bash
+    sudo setcap cap_sys_admin,cap_sys_chroot,cap_setuid,cap_setgid+ep ./build/sandrun
+    ./build/sandrun --port 8443  # No sudo needed
+    ```
 
 ## Your First Job
 
@@ -238,41 +315,195 @@ curl http://localhost:8443/stats
 # }
 ```
 
+## Understanding Rate Limits
+
+Sandrun uses IP-based rate limiting to ensure fair resource sharing:
+
+### Default Limits
+
+| Limit Type | Value | Window |
+|------------|-------|--------|
+| **CPU Quota** | 10 CPU-seconds | Per minute |
+| **Concurrent Jobs** | 2 jobs | At a time |
+| **Memory per Job** | 512MB | Per job |
+| **Timeout** | 5 minutes | Per job |
+
+### Check Your Quota
+
+```bash
+curl http://localhost:8443/stats
+```
+
+**Response:**
+```json
+{
+  "your_quota": {
+    "used": 2.5,
+    "limit": 10.0,
+    "available": 7.5,
+    "active_jobs": 1,
+    "can_submit": true
+  },
+  "system": {
+    "queue_length": 3,
+    "active_jobs": 5
+  }
+}
+```
+
+!!! tip "Quota Management"
+    - Quota resets after 1 hour of inactivity
+    - CPU time is measured in actual CPU seconds, not wall-clock time
+    - Use different IP addresses for separate quotas (if needed for testing)
+
 ## Troubleshooting
 
 ### Permission Denied
 
-```bash
-# Error: Permission denied creating namespace
-# Solution: Run with sudo
-sudo ./build/sandrun --port 8443
+**Symptom:**
 ```
+Error: Permission denied creating namespace
+```
+
+**Solutions:**
+
+=== "Use sudo"
+    ```bash
+    sudo ./build/sandrun --port 8443
+    ```
+
+=== "Grant capabilities"
+    ```bash
+    sudo setcap cap_sys_admin,cap_sys_chroot,cap_setuid,cap_setgid+ep ./build/sandrun
+    ./build/sandrun --port 8443
+    ```
+
+=== "Check user namespaces"
+    ```bash
+    # Some systems disable user namespaces for security
+    cat /proc/sys/kernel/unprivileged_userns_clone
+    # Should output: 1 (enabled)
+
+    # If disabled, enable it:
+    sudo sysctl -w kernel.unprivileged_userns_clone=1
+    ```
 
 ### Port Already in Use
 
+**Symptom:**
+```
+Error: Failed to bind to port 8443: Address already in use
+```
+
+**Solutions:**
+
 ```bash
-# Error: Failed to bind to port
-# Solution: Use different port
+# Option 1: Use a different port
 sudo ./build/sandrun --port 9000
+
+# Option 2: Find and kill the process using the port
+sudo lsof -i :8443
+sudo kill <PID>
+
+# Option 3: Let the OS assign a port
+sudo ./build/sandrun --port 0  # Uses random available port
 ```
 
-### Job Failed
+### Build Failures
 
+**Symptom:**
+```
+CMake Error: Could not find libseccomp
+```
+
+**Solution:**
 ```bash
-# Check logs for errors
-curl http://localhost:8443/logs/job-abc123
+# Ensure all dependencies are installed
+sudo apt-get install -y libseccomp-dev libcap-dev libssl-dev
 
-# Check status for exit code
-curl http://localhost:8443/status/job-abc123
+# Clean and rebuild
+rm -rf build
+cmake -B build
+cmake --build build
 ```
 
-### Quota Exceeded
+### Job Failed to Execute
 
-```bash
-# Error: Rate limit exceeded
-# Solution: Wait for quota to refresh (1 hour of inactivity)
-# Or use different IP address
+**Symptom:**
+Job status shows `"status": "failed"` with non-zero exit code.
+
+**Debugging Steps:**
+
+1. **Check logs for errors:**
+   ```bash
+   curl http://localhost:8443/logs/job-abc123
+   ```
+
+2. **Verify manifest syntax:**
+   ```bash
+   echo '{"entrypoint":"main.py","interpreter":"python3"}' | jq .
+   ```
+
+3. **Check file permissions:**
+   ```bash
+   # Ensure entrypoint is included in tarball
+   tar -tzf job.tar.gz
+   ```
+
+4. **Test locally first:**
+   ```bash
+   python3 main.py  # Test before submitting
+   ```
+
+### Rate Limit Exceeded
+
+**Symptom:**
+```json
+{
+  "error": "Rate limit exceeded",
+  "reason": "CPU quota exhausted (10.2/10.0 seconds used)",
+  "retry_after": 45
+}
 ```
+
+**Solutions:**
+
+- **Wait for quota refresh** (shown in `retry_after` field)
+- **Optimize your code** to use less CPU time
+- **Split jobs** into smaller chunks
+- **Use different IP** (for testing only)
+
+### Cannot Access Server
+
+**Symptom:**
+```
+curl: (7) Failed to connect to localhost port 8443: Connection refused
+```
+
+**Checklist:**
+
+1. **Verify server is running:**
+   ```bash
+   ps aux | grep sandrun
+   ```
+
+2. **Check if port is listening:**
+   ```bash
+   sudo netstat -tlnp | grep 8443
+   ```
+
+3. **Check firewall rules:**
+   ```bash
+   sudo ufw status
+   sudo iptables -L -n | grep 8443
+   ```
+
+4. **Verify server logs:**
+   ```bash
+   # If running in terminal, check stdout
+   # Or check system logs if running as service
+   journalctl -u sandrun -f
+   ```
 
 ## Next Steps
 
