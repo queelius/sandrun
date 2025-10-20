@@ -59,6 +59,25 @@ Thumbs.db
 *.bak
 *.backup
 
+# Coverage artifacts
+*.gcov
+*.gcda
+*.gcno
+*.info
+build-coverage/
+coverage/
+htmlcov/
+
+# Temporary documentation
+*_SUMMARY.md
+*_REPORT.md
+*_QUICKSTART.md
+*_IMPLEMENTATION*.md
+CURRENT_STATUS.md
+
 # Job outputs (if running locally)
 job_*
 sandrun_output/
+
+# Demo scripts
+demo.sh

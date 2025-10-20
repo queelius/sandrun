@@ -1,0 +1,13 @@
+{
+  "poll_interval": 5,
+  "heartbeat_interval": 30,
+  "max_concurrent_jobs": 1,
+  "job_timeout": 300,
+  "timeout_buffer": 10,
+  "capabilities": {
+    "cpu_cores": 4,
+    "memory_gb": 8,
+    "gpu": false,
+    "interpreters": ["python3", "node", "bash"]
+  }
+}
