@@ -203,18 +203,19 @@ graph LR
 
 ### New Users
 1. [Getting Started Guide](getting-started.md) - Install, configure, and run your first job
-2. [API Reference](api-reference.md) - Complete REST API documentation
-3. [Job Manifest](job-manifest.md) - Configure job execution parameters
+2. [Distributed Data Pipeline Tutorial](tutorials/distributed-data-pipeline.md) - Hands-on tutorial from basics to advanced
+3. [API Reference](api-reference.md) - Complete REST API documentation
+4. [Job Manifest](job-manifest.md) - Configure job execution parameters
 
 ### Advanced Usage
-4. [Trusted Pool](integrations/trusted-pool.md) - Distribute jobs across multiple workers
-5. [MCP Server](integrations/mcp-server.md) - Give Claude AI safe code execution
-6. [Job Broker](integrations/broker.md) - SQLite-backed distributed job queue
+5. [Trusted Pool](integrations/trusted-pool.md) - Distribute jobs across multiple workers
+6. [MCP Server](integrations/mcp-server.md) - Give Claude AI safe code execution
+7. [Job Broker](integrations/broker.md) - SQLite-backed distributed job queue
 
 ### Developers
-7. [Architecture](architecture.md) - Understand the design and security model
-8. [Building](development/building.md) - Compile from source and contribute
-9. [Testing](development/testing.md) - Run tests and verify functionality
+8. [Architecture](architecture.md) - Understand the design and security model
+9. [Building](development/building.md) - Compile from source and contribute
+10. [Testing](development/testing.md) - Run tests and verify functionality
 
 ## Community & Support
 

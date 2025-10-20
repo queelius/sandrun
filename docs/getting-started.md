@@ -571,6 +571,19 @@ curl http://localhost:8443/environments
 
 ## Next Steps
 
+!!! tip "Ready for More?"
+    Check out our comprehensive [Distributed Data Pipeline Tutorial](tutorials/distributed-data-pipeline.md) that takes you from basics to building a production-ready distributed processing system with:
+
+    - Multi-file projects with dependencies
+    - Pre-built environments for faster execution
+    - Distributed computing across worker pools
+    - Real-time WebSocket monitoring
+    - Cryptographic result verification
+
+    **Time:** 45-60 minutes | **Level:** Beginner to Advanced
+
+### Additional Resources
+
 - [API Reference](api-reference.md) - Complete API documentation
 - [Job Manifest](job-manifest.md) - Advanced job configuration
 - [Integrations](integrations/trusted-pool.md) - Pool coordinator, MCP server
