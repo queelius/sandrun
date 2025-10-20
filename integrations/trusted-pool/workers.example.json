@@ -1,0 +1,17 @@
+[
+  {
+    "worker_id": "your-worker-1-public-key-base64",
+    "endpoint": "http://worker1.example.com:8443",
+    "max_concurrent_jobs": 4
+  },
+  {
+    "worker_id": "your-worker-2-public-key-base64",
+    "endpoint": "http://worker2.example.com:8443",
+    "max_concurrent_jobs": 4
+  },
+  {
+    "worker_id": "your-worker-3-public-key-base64",
+    "endpoint": "http://192.168.1.100:8443",
+    "max_concurrent_jobs": 2
+  }
+]

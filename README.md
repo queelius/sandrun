@@ -14,6 +14,8 @@ Sandrun provides secure, isolated code execution without user accounts or data p
 - **📦 Directory Upload** - Submit entire projects with dependencies
 - **⚡ Simple API** - RESTful endpoints, multipart uploads
 - **🎯 Resource Limits** - CPU quotas, memory limits, timeouts
+- **🔐 Worker Identity** - Ed25519 signatures for result verification
+- **🔗 Pool Support** - Distribute jobs across multiple workers
 
 ## 🚀 Quick Start
 
@@ -136,6 +138,48 @@ print(result['logs']['stdout'])
 # See examples
 ./integrations/examples/curl_examples.sh
 ```
+
+### Trusted Pool Coordinator
+
+**NEW:** Distribute jobs across multiple trusted workers for increased capacity and redundancy.
+
+```bash
+# Install dependencies
+cd integrations/trusted-pool
+pip install -r requirements.txt
+
+# Generate worker keys
+./build/sandrun --generate-key /etc/sandrun/worker1.pem
+./build/sandrun --generate-key /etc/sandrun/worker2.pem
+
+# Configure workers (add worker IDs to workers.json)
+# See integrations/trusted-pool/workers.example.json
+
+# Start workers on different machines
+sudo ./build/sandrun --port 8443 --worker-key /etc/sandrun/worker1.pem  # Machine 1
+sudo ./build/sandrun --port 8443 --worker-key /etc/sandrun/worker2.pem  # Machine 2
+
+# Start pool coordinator
+python3 integrations/trusted-pool/coordinator.py --port 9000 --workers workers.json
+
+# Submit jobs to pool (same API as single worker)
+curl -X POST http://pool-coordinator:9000/submit \
+  -F "files=@project.tar.gz" \
+  -F 'manifest={"entrypoint":"main.py"}'
+```
+
+**Features:**
+- **Worker allowlist** - Ed25519 public key authentication
+- **Health checking** - Automatic worker health monitoring
+- **Load balancing** - Jobs distributed across available workers
+- **Job routing** - Automatic dispatch to least-loaded worker
+- **Transparent proxy** - Same API as single worker
+
+**See:** `integrations/trusted-pool/README.md` for full documentation and testing guide.
+
+**Trust Model:** Workers are pre-approved and trusted. No result verification needed. Perfect for private clusters where you control all workers.
+
+**Coming Soon:** Trustless pool coordinator with consensus-based verification for public/untrusted workers.
 
 ## 🔧 Configuration
 

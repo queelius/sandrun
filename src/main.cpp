@@ -749,6 +749,26 @@ int main(int argc, char* argv[]) {
         return resp;
     });
 
+    // GET /health - Health check endpoint for pool coordinators
+    server.route("GET", "/health", [&worker_identity](const HttpRequest& req) {
+        HttpResponse resp;
+
+        std::stringstream json;
+        json << "{";
+        json << "\"status\":\"healthy\",";
+
+        if (worker_identity) {
+            json << "\"worker_id\":\"" << worker_identity->get_worker_id() << "\"";
+        } else {
+            json << "\"worker_id\":null";
+        }
+
+        json << "}";
+
+        resp.body = json.str();
+        return resp;
+    });
+
     // Job executor thread
     std::thread executor([&]() {
         Sandbox sandbox;
