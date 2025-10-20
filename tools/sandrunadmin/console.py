@@ -27,20 +27,21 @@ class SandrunConsole(cmd.Cmd):
 """
     prompt = 'sandrun> '
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, skip_connection_test: bool = False):
         super().__init__()
         self.base_url = base_url.rstrip('/')
         self.cwd = Path('/')
         self.session = requests.Session()
 
-        # Test connection
-        try:
-            resp = self.session.get(f'{self.base_url}/', timeout=5)
-            resp.raise_for_status()
-            print(f"✅ Connected to {self.base_url}")
-        except Exception as e:
-            print(f"❌ Failed to connect to {self.base_url}: {e}")
-            sys.exit(1)
+        # Test connection (skip for testing)
+        if not skip_connection_test:
+            try:
+                resp = self.session.get(f'{self.base_url}/', timeout=5)
+                resp.raise_for_status()
+                print(f"✅ Connected to {self.base_url}")
+            except Exception as e:
+                print(f"❌ Failed to connect to {self.base_url}: {e}")
+                sys.exit(1)
 
     def _resolve_path(self, arg: str) -> Path:
         """Resolve relative path to absolute"""
