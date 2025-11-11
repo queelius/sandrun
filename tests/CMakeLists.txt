@@ -31,6 +31,7 @@ add_executable(unit_tests
     unit/test_environment_manager.cpp
     unit/test_job_hash.cpp
     unit/test_http_server.cpp
+    unit/test_websocket.cpp
     ${CMAKE_SOURCE_DIR}/src/sandbox.cpp
     ${CMAKE_SOURCE_DIR}/src/rate_limiter.cpp
     ${CMAKE_SOURCE_DIR}/src/proof.cpp
