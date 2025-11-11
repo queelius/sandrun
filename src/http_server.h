@@ -53,6 +53,10 @@ public:
     // Stop server
     void stop();
 
+    // Public for testing - these are pure functions with no side effects
+    static HttpRequest parse_request(const std::string& raw);
+    static std::string build_response(const HttpResponse& resp);
+
 private:
     int port_;
     int server_fd_;
@@ -61,8 +65,6 @@ private:
     std::map<std::string, WebSocketHandlerFunc> ws_routes_;
 
     void handle_client(int client_fd, const std::string& client_ip);
-    HttpRequest parse_request(const std::string& raw);
-    std::string build_response(const HttpResponse& resp);
     std::string get_client_ip(int client_fd);
 };
 

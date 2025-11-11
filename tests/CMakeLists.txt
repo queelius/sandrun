@@ -30,6 +30,7 @@ add_executable(unit_tests
     unit/test_worker_identity.cpp
     unit/test_environment_manager.cpp
     unit/test_job_hash.cpp
+    unit/test_http_server.cpp
     ${CMAKE_SOURCE_DIR}/src/sandbox.cpp
     ${CMAKE_SOURCE_DIR}/src/rate_limiter.cpp
     ${CMAKE_SOURCE_DIR}/src/proof.cpp
@@ -39,6 +40,8 @@ add_executable(unit_tests
     ${CMAKE_SOURCE_DIR}/src/worker_identity.cpp
     ${CMAKE_SOURCE_DIR}/src/environment_manager.cpp
     ${CMAKE_SOURCE_DIR}/src/job_hash.cpp
+    ${CMAKE_SOURCE_DIR}/src/http_server.cpp
+    ${CMAKE_SOURCE_DIR}/src/websocket.cpp
 )
 
 target_link_libraries(unit_tests
