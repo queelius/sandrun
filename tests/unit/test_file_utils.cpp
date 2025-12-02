@@ -495,5 +495,220 @@ TEST_F(FileUtilsTest, FileTypeToString_AllTypes) {
     EXPECT_EQ(FileUtils::file_type_to_string(FileType::OTHER), "other");
 }
 
+// ============================================================================
+// MIME Type Tests
+// ============================================================================
+
+TEST_F(FileUtilsTest, GetMimeType_Images) {
+    // Given: Image file extensions
+    // When: Getting MIME type
+    // Then: Should return correct image MIME types
+    EXPECT_EQ(FileUtils::get_mime_type("photo.png"), "image/png");
+    EXPECT_EQ(FileUtils::get_mime_type("photo.jpg"), "image/jpeg");
+    EXPECT_EQ(FileUtils::get_mime_type("photo.jpeg"), "image/jpeg");
+    EXPECT_EQ(FileUtils::get_mime_type("animation.gif"), "image/gif");
+    EXPECT_EQ(FileUtils::get_mime_type("image.bmp"), "image/bmp");
+    EXPECT_EQ(FileUtils::get_mime_type("image.webp"), "image/webp");
+    EXPECT_EQ(FileUtils::get_mime_type("vector.svg"), "image/svg+xml");
+}
+
+TEST_F(FileUtilsTest, GetMimeType_Videos) {
+    EXPECT_EQ(FileUtils::get_mime_type("video.mp4"), "video/mp4");
+    EXPECT_EQ(FileUtils::get_mime_type("video.avi"), "video/x-msvideo");
+    EXPECT_EQ(FileUtils::get_mime_type("video.mov"), "video/quicktime");
+    EXPECT_EQ(FileUtils::get_mime_type("video.mkv"), "video/x-matroska");
+    EXPECT_EQ(FileUtils::get_mime_type("video.webm"), "video/webm");
+}
+
+TEST_F(FileUtilsTest, GetMimeType_Audio) {
+    EXPECT_EQ(FileUtils::get_mime_type("audio.mp3"), "audio/mpeg");
+    EXPECT_EQ(FileUtils::get_mime_type("audio.wav"), "audio/wav");
+    EXPECT_EQ(FileUtils::get_mime_type("audio.ogg"), "audio/ogg");
+}
+
+TEST_F(FileUtilsTest, GetMimeType_DataAndText) {
+    EXPECT_EQ(FileUtils::get_mime_type("data.csv"), "text/csv");
+    EXPECT_EQ(FileUtils::get_mime_type("data.json"), "application/json");
+    EXPECT_EQ(FileUtils::get_mime_type("readme.txt"), "text/plain");
+    EXPECT_EQ(FileUtils::get_mime_type("readme.md"), "text/markdown");
+    EXPECT_EQ(FileUtils::get_mime_type("app.log"), "text/plain");
+}
+
+TEST_F(FileUtilsTest, GetMimeType_Archives) {
+    EXPECT_EQ(FileUtils::get_mime_type("archive.zip"), "application/zip");
+    EXPECT_EQ(FileUtils::get_mime_type("archive.tar"), "application/x-tar");
+    EXPECT_EQ(FileUtils::get_mime_type("archive.gz"), "application/gzip");
+}
+
+TEST_F(FileUtilsTest, GetMimeType_Code) {
+    EXPECT_EQ(FileUtils::get_mime_type("script.py"), "text/x-python");
+    EXPECT_EQ(FileUtils::get_mime_type("script.js"), "application/javascript");
+    EXPECT_EQ(FileUtils::get_mime_type("code.cpp"), "text/x-c++");
+    EXPECT_EQ(FileUtils::get_mime_type("code.c"), "text/x-c");
+    EXPECT_EQ(FileUtils::get_mime_type("header.h"), "text/x-c");
+}
+
+TEST_F(FileUtilsTest, GetMimeType_Documents) {
+    EXPECT_EQ(FileUtils::get_mime_type("doc.pdf"), "application/pdf");
+}
+
+TEST_F(FileUtilsTest, GetMimeType_Models) {
+    EXPECT_EQ(FileUtils::get_mime_type("model.pt"), "application/octet-stream");
+    EXPECT_EQ(FileUtils::get_mime_type("model.pth"), "application/octet-stream");
+    EXPECT_EQ(FileUtils::get_mime_type("model.onnx"), "application/octet-stream");
+}
+
+TEST_F(FileUtilsTest, GetMimeType_UnknownExtension) {
+    // Given: Unknown file extension
+    // When: Getting MIME type
+    // Then: Should return octet-stream fallback
+    EXPECT_EQ(FileUtils::get_mime_type("file.xyz"), "application/octet-stream");
+    EXPECT_EQ(FileUtils::get_mime_type("file.unknown"), "application/octet-stream");
+    EXPECT_EQ(FileUtils::get_mime_type("noextension"), "application/octet-stream");
+}
+
+TEST_F(FileUtilsTest, GetMimeType_CaseInsensitive) {
+    // Given: Extension with different cases
+    // When: Getting MIME type
+    // Then: Should handle case-insensitively
+    EXPECT_EQ(FileUtils::get_mime_type("photo.PNG"), "image/png");
+    EXPECT_EQ(FileUtils::get_mime_type("photo.Png"), "image/png");
+    EXPECT_EQ(FileUtils::get_mime_type("data.JSON"), "application/json");
+}
+
+// ============================================================================
+// Format File Size Tests
+// ============================================================================
+
+TEST_F(FileUtilsTest, FormatFileSize_Bytes) {
+    // Given: Small file sizes (< 1KB)
+    // When: Formatting size
+    // Then: Should show in bytes
+    EXPECT_EQ(FileUtils::format_file_size(0), "0.0 B");
+    EXPECT_EQ(FileUtils::format_file_size(1), "1.0 B");
+    EXPECT_EQ(FileUtils::format_file_size(512), "512.0 B");
+    EXPECT_EQ(FileUtils::format_file_size(1023), "1023.0 B");
+}
+
+TEST_F(FileUtilsTest, FormatFileSize_Kilobytes) {
+    // Given: File sizes 1KB - 1MB
+    // When: Formatting size
+    // Then: Should show in KB
+    EXPECT_EQ(FileUtils::format_file_size(1024), "1.0 KB");
+    EXPECT_EQ(FileUtils::format_file_size(1536), "1.5 KB");
+    EXPECT_EQ(FileUtils::format_file_size(1024 * 100), "100.0 KB");
+    EXPECT_EQ(FileUtils::format_file_size(1024 * 1023), "1023.0 KB");
+}
+
+TEST_F(FileUtilsTest, FormatFileSize_Megabytes) {
+    // Given: File sizes 1MB - 1GB
+    // When: Formatting size
+    // Then: Should show in MB
+    EXPECT_EQ(FileUtils::format_file_size(1024 * 1024), "1.0 MB");
+    EXPECT_EQ(FileUtils::format_file_size(1024 * 1024 * 500), "500.0 MB");
+}
+
+TEST_F(FileUtilsTest, FormatFileSize_Gigabytes) {
+    // Given: File sizes 1GB - 1TB
+    // When: Formatting size
+    // Then: Should show in GB
+    size_t gb = 1024ULL * 1024 * 1024;
+    EXPECT_EQ(FileUtils::format_file_size(gb), "1.0 GB");
+    EXPECT_EQ(FileUtils::format_file_size(gb * 5), "5.0 GB");
+}
+
+TEST_F(FileUtilsTest, FormatFileSize_Terabytes) {
+    // Given: File sizes >= 1TB
+    // When: Formatting size
+    // Then: Should show in TB
+    size_t tb = 1024ULL * 1024 * 1024 * 1024;
+    EXPECT_EQ(FileUtils::format_file_size(tb), "1.0 TB");
+    EXPECT_EQ(FileUtils::format_file_size(tb * 2), "2.0 TB");
+}
+
+// ============================================================================
+// Advanced Pattern Matching Tests
+// ============================================================================
+
+TEST_F(FileUtilsTest, MatchesPattern_ComplexPatterns) {
+    // Given: Pattern with both prefix and suffix (prefix*suffix)
+    // When: Matching files
+    // Then: Should correctly match prefix AND suffix
+    EXPECT_TRUE(FileUtils::matches_pattern("output.txt", "output*.txt"));
+    EXPECT_TRUE(FileUtils::matches_pattern("output_data.txt", "output*.txt"));
+    EXPECT_FALSE(FileUtils::matches_pattern("output.csv", "output*.txt"));
+    EXPECT_FALSE(FileUtils::matches_pattern("input.txt", "output*.txt"));
+}
+
+TEST_F(FileUtilsTest, MatchesPattern_SuffixMatch) {
+    // Given: Pattern *suffix (star at beginning with single star)
+    // When: Matching files
+    // Then: Should match paths that END with suffix
+    EXPECT_TRUE(FileUtils::matches_pattern("my_file_result", "*result"));
+    EXPECT_TRUE(FileUtils::matches_pattern("result", "*result"));
+    EXPECT_FALSE(FileUtils::matches_pattern("data_result.csv", "*result"));  // ends with .csv not result
+    EXPECT_FALSE(FileUtils::matches_pattern("results", "*result"));  // ends with "s" not "result"
+}
+
+TEST_F(FileUtilsTest, MatchesPattern_EmptyString) {
+    // Given: Empty path string
+    // When: Matching against patterns
+    // Then: Should handle correctly
+    EXPECT_TRUE(FileUtils::matches_pattern("", "*"));
+    EXPECT_FALSE(FileUtils::matches_pattern("", "*.txt"));
+    EXPECT_TRUE(FileUtils::matches_pattern("", ""));  // Exact empty match
+}
+
+// ============================================================================
+// File Type Detection Edge Cases
+// ============================================================================
+
+TEST_F(FileUtilsTest, DetectFileType_NoExtension) {
+    // Given: Filename without extension
+    // When: Detecting file type
+    // Then: Should return OTHER
+    EXPECT_EQ(FileUtils::detect_file_type("README"), FileType::OTHER);
+    EXPECT_EQ(FileUtils::detect_file_type("Makefile"), FileType::OTHER);
+    EXPECT_EQ(FileUtils::detect_file_type(".gitignore"), FileType::OTHER);
+}
+
+TEST_F(FileUtilsTest, DetectFileType_MultipleExtensions) {
+    // Given: Filename with multiple dots
+    // When: Detecting file type
+    // Then: Should use last extension
+    EXPECT_EQ(FileUtils::detect_file_type("data.backup.csv"), FileType::DATA);
+    EXPECT_EQ(FileUtils::detect_file_type("model.v2.pt"), FileType::MODEL);
+    EXPECT_EQ(FileUtils::detect_file_type("archive.tar.gz"), FileType::ARCHIVE);
+}
+
+TEST_F(FileUtilsTest, DetectFileType_AllCategories) {
+    // Test all major categories have at least one working extension
+    EXPECT_EQ(FileUtils::detect_file_type("file.png"), FileType::IMAGE);
+    EXPECT_EQ(FileUtils::detect_file_type("file.pt"), FileType::MODEL);
+    EXPECT_EQ(FileUtils::detect_file_type("file.mp4"), FileType::VIDEO);
+    EXPECT_EQ(FileUtils::detect_file_type("file.mp3"), FileType::AUDIO);
+    EXPECT_EQ(FileUtils::detect_file_type("file.csv"), FileType::DATA);
+    EXPECT_EQ(FileUtils::detect_file_type("file.txt"), FileType::TEXT);
+    EXPECT_EQ(FileUtils::detect_file_type("file.zip"), FileType::ARCHIVE);
+    EXPECT_EQ(FileUtils::detect_file_type("file.py"), FileType::CODE);
+    EXPECT_EQ(FileUtils::detect_file_type("file.pdf"), FileType::DOCUMENT);
+}
+
+// ============================================================================
+// Get File Metadata Edge Cases
+// ============================================================================
+
+TEST_F(FileUtilsTest, GetFileMetadata_Directory) {
+    // Given: A directory path (not a file)
+    // When: Getting metadata
+    // Then: Should return empty metadata (handles gracefully)
+    std::filesystem::create_directories(test_dir / "subdir");
+    FileMetadata metadata = FileUtils::get_file_metadata((test_dir / "subdir").string());
+
+    EXPECT_EQ(metadata.size_bytes, 0);
+    EXPECT_EQ(metadata.sha256_hash, "");
+    EXPECT_EQ(metadata.type, FileType::OTHER);
+}
+
 } // namespace
 } // namespace sandrun

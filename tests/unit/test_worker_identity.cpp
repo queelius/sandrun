@@ -634,5 +634,258 @@ TEST_F(WorkerIdentityTest, FromKeyfile_HandlesCorruptedPEM) {
         << "Should gracefully reject corrupted PEM file";
 }
 
+// ============================================================================
+// Additional Base64 Edge Cases
+// ============================================================================
+
+TEST_F(WorkerIdentityTest, Base64_SingleByte) {
+    // Given: A single byte
+    unsigned char single_byte[] = {0xAB};
+
+    // When: Encoding and decoding
+    std::string encoded = WorkerIdentity::base64_encode(single_byte, 1);
+    std::vector<unsigned char> decoded = WorkerIdentity::base64_decode(encoded);
+
+    // Then: Should roundtrip correctly
+    ASSERT_EQ(decoded.size(), 1);
+    EXPECT_EQ(decoded[0], 0xAB);
+}
+
+TEST_F(WorkerIdentityTest, Base64_AllZeros) {
+    // Given: All zero bytes (32 bytes like Ed25519 key)
+    unsigned char zeros[32] = {0};
+
+    // When: Encoding and decoding
+    std::string encoded = WorkerIdentity::base64_encode(zeros, 32);
+    std::vector<unsigned char> decoded = WorkerIdentity::base64_decode(encoded);
+
+    // Then: Should preserve zeros
+    ASSERT_EQ(decoded.size(), 32);
+    for (size_t i = 0; i < 32; i++) {
+        EXPECT_EQ(decoded[i], 0);
+    }
+}
+
+TEST_F(WorkerIdentityTest, Base64_AllOnes) {
+    // Given: All 0xFF bytes
+    unsigned char ones[32];
+    std::fill(ones, ones + 32, 0xFF);
+
+    // When: Encoding and decoding
+    std::string encoded = WorkerIdentity::base64_encode(ones, 32);
+    std::vector<unsigned char> decoded = WorkerIdentity::base64_decode(encoded);
+
+    // Then: Should preserve 0xFF values
+    ASSERT_EQ(decoded.size(), 32);
+    for (size_t i = 0; i < 32; i++) {
+        EXPECT_EQ(decoded[i], 0xFF);
+    }
+}
+
+TEST_F(WorkerIdentityTest, Base64_LargeData) {
+    // Given: Moderately large data (64KB - fast enough for CI)
+    std::vector<unsigned char> large_data(64 * 1024);
+    for (size_t i = 0; i < large_data.size(); i++) {
+        large_data[i] = static_cast<unsigned char>(i % 256);
+    }
+
+    // When: Encoding and decoding
+    std::string encoded = WorkerIdentity::base64_encode(large_data.data(), large_data.size());
+    std::vector<unsigned char> decoded = WorkerIdentity::base64_decode(encoded);
+
+    // Then: Should roundtrip correctly
+    EXPECT_EQ(decoded.size(), large_data.size());
+    // Spot check some values
+    EXPECT_EQ(decoded[0], 0);
+    EXPECT_EQ(decoded[255], 255);
+    EXPECT_EQ(decoded[1000], 1000 % 256);
+}
+
+// ============================================================================
+// Signature Edge Cases
+// ============================================================================
+
+TEST_F(WorkerIdentityTest, SignBinaryData) {
+    // Given: Binary data with null bytes
+    auto identity = WorkerIdentity::generate();
+    ASSERT_NE(identity, nullptr);
+
+    std::string binary_data;
+    binary_data.push_back('\0');
+    binary_data.push_back('A');
+    binary_data.push_back('\0');
+    binary_data.push_back('B');
+
+    // When: Signing binary data
+    std::string signature = identity->sign(binary_data);
+    std::string worker_id = identity->get_worker_id();
+
+    // Then: Should sign and verify correctly
+    EXPECT_FALSE(signature.empty());
+    EXPECT_TRUE(WorkerIdentity::verify(binary_data, signature, worker_id));
+}
+
+TEST_F(WorkerIdentityTest, SignUnicodeData) {
+    // Given: Unicode data
+    auto identity = WorkerIdentity::generate();
+    ASSERT_NE(identity, nullptr);
+
+    std::string unicode_data = "Hello 世界 🌍 Привет";
+
+    // When: Signing unicode data
+    std::string signature = identity->sign(unicode_data);
+    std::string worker_id = identity->get_worker_id();
+
+    // Then: Should sign and verify correctly
+    EXPECT_FALSE(signature.empty());
+    EXPECT_TRUE(WorkerIdentity::verify(unicode_data, signature, worker_id));
+}
+
+TEST_F(WorkerIdentityTest, SignVeryLongData) {
+    // Given: Long data (100KB - fast enough for CI)
+    auto identity = WorkerIdentity::generate();
+    ASSERT_NE(identity, nullptr);
+
+    std::string long_data(100 * 1024, 'X');
+
+    // When: Signing long data
+    std::string signature = identity->sign(long_data);
+    std::string worker_id = identity->get_worker_id();
+
+    // Then: Should sign and verify correctly
+    EXPECT_FALSE(signature.empty());
+    EXPECT_TRUE(WorkerIdentity::verify(long_data, signature, worker_id));
+}
+
+// ============================================================================
+// Verification Edge Cases
+// ============================================================================
+
+TEST_F(WorkerIdentityTest, VerifyEmptyPublicKey) {
+    // Given: An identity with valid signature
+    auto identity = WorkerIdentity::generate();
+    ASSERT_NE(identity, nullptr);
+
+    std::string data = "test";
+    std::string signature = identity->sign(data);
+
+    // When: Verifying with empty public key
+    bool valid = WorkerIdentity::verify(data, signature, "");
+
+    // Then: Should reject gracefully
+    EXPECT_FALSE(valid);
+}
+
+TEST_F(WorkerIdentityTest, VerifyEmptySignature) {
+    // Given: An identity
+    auto identity = WorkerIdentity::generate();
+    ASSERT_NE(identity, nullptr);
+
+    std::string data = "test";
+    std::string worker_id = identity->get_worker_id();
+
+    // When: Verifying with empty signature
+    bool valid = WorkerIdentity::verify(data, "", worker_id);
+
+    // Then: Should reject gracefully
+    EXPECT_FALSE(valid);
+}
+
+TEST_F(WorkerIdentityTest, VerifyEmptyData) {
+    // Given: Signature of empty data
+    auto identity = WorkerIdentity::generate();
+    ASSERT_NE(identity, nullptr);
+
+    std::string empty_data = "";
+    std::string signature = identity->sign(empty_data);
+    std::string worker_id = identity->get_worker_id();
+
+    // When: Verifying empty data
+    bool valid = WorkerIdentity::verify(empty_data, signature, worker_id);
+
+    // Then: Should verify successfully
+    EXPECT_TRUE(valid);
+}
+
+// ============================================================================
+// Worker ID Format Tests
+// ============================================================================
+
+TEST_F(WorkerIdentityTest, WorkerIDIsConsistentBase64) {
+    // Given: Multiple accesses to the same identity
+    auto identity = WorkerIdentity::generate();
+    ASSERT_NE(identity, nullptr);
+
+    // When: Getting worker ID multiple times
+    std::string id1 = identity->get_worker_id();
+    std::string id2 = identity->get_worker_id();
+    std::string id3 = identity->get_worker_id();
+
+    // Then: Should always return the same value
+    EXPECT_EQ(id1, id2);
+    EXPECT_EQ(id2, id3);
+
+    // And: Should be valid base64 that decodes to 32 bytes
+    auto decoded = WorkerIdentity::base64_decode(id1);
+    EXPECT_EQ(decoded.size(), 32);
+}
+
+TEST_F(WorkerIdentityTest, PublicKeyMatchesWorkerID) {
+    // Given: An identity
+    auto identity = WorkerIdentity::generate();
+    ASSERT_NE(identity, nullptr);
+
+    // When: Getting public key and worker ID
+    auto public_key = identity->get_public_key();
+    std::string worker_id = identity->get_worker_id();
+
+    // Then: Worker ID should be base64 of public key
+    auto decoded_id = WorkerIdentity::base64_decode(worker_id);
+
+    ASSERT_EQ(decoded_id.size(), public_key.size());
+    for (size_t i = 0; i < public_key.size(); i++) {
+        EXPECT_EQ(decoded_id[i], public_key[i]);
+    }
+}
+
+// ============================================================================
+// File Operations Edge Cases
+// ============================================================================
+
+TEST_F(WorkerIdentityTest, SaveToExistingFile) {
+    // Given: An existing file
+    std::string existing_file = (test_dir / "existing.pem").string();
+    std::ofstream out(existing_file);
+    out << "existing content";
+    out.close();
+
+    auto identity = WorkerIdentity::generate();
+    ASSERT_NE(identity, nullptr);
+
+    // When: Saving to existing file
+    bool success = identity->save_to_file(existing_file);
+
+    // Then: Should overwrite successfully
+    EXPECT_TRUE(success);
+
+    // And: Should be loadable
+    auto loaded = WorkerIdentity::from_keyfile(existing_file);
+    EXPECT_NE(loaded, nullptr);
+    EXPECT_EQ(loaded->get_worker_id(), identity->get_worker_id());
+}
+
+TEST_F(WorkerIdentityTest, LoadEmptyFile) {
+    // Given: An empty file
+    std::string empty_file = (test_dir / "empty.pem").string();
+    std::ofstream out(empty_file);
+    out.close();
+
+    // When: Loading empty file
+    auto identity = WorkerIdentity::from_keyfile(empty_file);
+
+    // Then: Should fail gracefully
+    EXPECT_EQ(identity, nullptr);
+}
+
 } // namespace
 } // namespace sandrun
